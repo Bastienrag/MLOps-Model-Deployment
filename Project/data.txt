@@ -1,0 +1,8 @@
+- GBG500.parquet:
+Time index and IMU data for 500 rides in Gothenburg (Safe: 416, Safe Overall: 38, Bad Weather: 22, Tandem: 18, Reckless: 6). Reckless rides are the positive class we aim to detect; Safe rides are normal; the remaining categories (Safe Overall, Bad Weather, Tandem) are counterfactual — they lie near the decision boundary and should not be flagged as anomalies.
+
+- GBG500_labels.csv:
+GBG500 labels (used only for evaluation).
+
+- SRV3490.parquet:
+Time index and IMU data for 3490 rides in 8 cities across Europe. 698 rides contain topple (fall) events with user-confirmed crashes; the remaining rides have no known or detected topple events. For confirmed-crash rides, crash_ride_id is null; for baseline rides, it points to the associated confirmed-crash ride ID (4 baselines per crash).
