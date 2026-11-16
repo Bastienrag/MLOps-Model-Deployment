@@ -1,0 +1,9 @@
+# kind create cluster --name mlops --config k8s/kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080   # NodePort du Service fraud-api
+        hostPort: 8080
+        protocol: TCP

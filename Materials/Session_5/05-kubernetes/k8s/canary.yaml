@@ -1,0 +1,32 @@
+# Canary: version 2, started with 0 replicas.
+#   docker build -t fraud-api:v2 .        (same code, different threshold: see below)
+#   kind load docker-image fraud-api:v2 --name mlops
+#   kubectl apply -f k8s/canary.yaml
+#   kubectl scale deploy/fraud-api-v1 --replicas=9
+#   kubectl scale deploy/fraud-api-v2 --replicas=1      # about 10% of the traffic goes to v2
+# Rollback:
+#   kubectl scale deploy/fraud-api-v2 --replicas=0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-api-v2
+  labels: {app: fraud-api, track: canary}
+spec:
+  replicas: 0
+  selector:
+    matchLabels: {app: fraud-api, track: canary}
+  template:
+    metadata:
+      labels: {app: fraud-api, track: canary}
+    spec:
+      containers:
+        - name: api
+          image: fraud-api:v2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DECISION_THRESHOLD
+              value: "0.5"    # v2 uses a different threshold, so its behaviour is observably different
+          # TODO 3: copy the readinessProbe, livenessProbe and resources from k8s/deployment.yaml
+          #   (a canary must be configured like the stable version, otherwise the comparison is unfair).

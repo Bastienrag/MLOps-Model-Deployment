@@ -1,0 +1,54 @@
+artifact_path: /Users/matthieudecibeins/workspace/mlops/mlruns/1/models/m-c915c8757ea84b6b888c763d9e9ce20f/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.skops
+    predict_fn: predict
+    python_version: 3.14.3
+  sklearn:
+    code: null
+    pickled_model: model.skops
+    serialization_format: skops
+    sklearn_version: 1.9.1
+    skops_trusted_types:
+    - sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor
+is_signature_from_type_hint: false
+mlflow_version: 3.17.2
+model_id: m-c915c8757ea84b6b888c763d9e9ce20f
+model_size_bytes: 347800
+model_uuid: m-c915c8757ea84b6b888c763d9e9ce20f
+prompts: null
+run_id: 64b59d30a6e14f5ab8df62ab073fa4ca
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "double", "name": "v1", "required": true}, {"type": "double",
+    "name": "v2", "required": true}, {"type": "double", "name": "v3", "required":
+    true}, {"type": "double", "name": "v4", "required": true}, {"type": "double",
+    "name": "v5", "required": true}, {"type": "double", "name": "v6", "required":
+    true}, {"type": "double", "name": "v7", "required": true}, {"type": "double",
+    "name": "v8", "required": true}, {"type": "double", "name": "v9", "required":
+    true}, {"type": "double", "name": "v10", "required": true}, {"type": "double",
+    "name": "v11", "required": true}, {"type": "double", "name": "v12", "required":
+    true}, {"type": "double", "name": "v13", "required": true}, {"type": "double",
+    "name": "v14", "required": true}, {"type": "double", "name": "v15", "required":
+    true}, {"type": "double", "name": "v16", "required": true}, {"type": "double",
+    "name": "v17", "required": true}, {"type": "double", "name": "v18", "required":
+    true}, {"type": "double", "name": "v19", "required": true}, {"type": "double",
+    "name": "v20", "required": true}, {"type": "double", "name": "v21", "required":
+    true}, {"type": "double", "name": "v22", "required": true}, {"type": "double",
+    "name": "v23", "required": true}, {"type": "double", "name": "v24", "required":
+    true}, {"type": "double", "name": "v25", "required": true}, {"type": "double",
+    "name": "v26", "required": true}, {"type": "double", "name": "v27", "required":
+    true}, {"type": "double", "name": "v28", "required": true}, {"type": "double",
+    "name": "amount", "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float64", "shape": [-1]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-10-25 17:13:18.561795'

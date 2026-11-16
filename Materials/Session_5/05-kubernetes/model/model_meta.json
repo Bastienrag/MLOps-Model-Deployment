@@ -1,0 +1,7 @@
+{
+  "name": "fraud-classifier",
+  "version": 2,
+  "alias": "staging",
+  "run_id": "64b59d30a6e14f5ab8df62ab073fa4ca",
+  "decision_threshold": 0.000702
+}
