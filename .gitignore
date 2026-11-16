@@ -2,3 +2,5 @@
 *.parquet
 *.zip
 .env
+.idea/
+*.egg-info/
