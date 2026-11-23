@@ -1,8 +1,12 @@
 name: CI
 
-# À chaque push et pull request : lint, tests, puis gate d'évaluation du modèle.
-# Rien n'est publié ici. Le job de publication (image Docker) viendra plus tard avec
-# `needs: [lint-test, model-gate]` : il ne démarre que si les deux ont réussi.
+# À chaque push et pull request : lint, tests, gate d'évaluation du modèle, puis image Docker.
+# Le job `docker` ne démarre que si les deux premiers ont réussi (`needs`). Il construit l'image et la
+# teste ; il ne la publie sur Docker Hub que sur un push vers main, une fois le smoke test réussi.
+#
+# Réglages du dépôt pour la publication (sans eux, l'image est construite et testée, pas publiée) :
+#   gh variable set DOCKERHUB_USERNAME --body <compte>
+#   gh secret set DOCKERHUB_TOKEN          # token d'accès Docker Hub (droits Read & Write)
 #
 # Échec volontaire, pour vérifier que le gate met bien la pipeline au rouge :
 #   gh workflow run ci.yml -f gate_min_balanced_accuracy=0.99
@@ -83,3 +87,45 @@ jobs:
           path: reports/gate.json
           if-no-files-found: ignore
           retention-days: 14
+
+  docker:
+    needs: [lint-test, model-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/imu-api
+      # Booléen seulement : le secret n'est exposé qu'à l'étape de publication.
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DOCKERHUB_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # La version du modèle annoncée par l'API est le commit qui a produit l'image.
+      - name: Construction de l'image
+        run: docker build --build-arg GIT_SHA=${{ github.sha }} -t imu-api:ci .
+
+      - name: Smoke test de l'image
+        run: |
+          docker run -d --name api -p 8000:8000 imu-api:ci
+          test "$(docker exec api id -u)" != "0"   # pas de root dans le conteneur
+          python3 ci/smoke_test.py http://localhost:8000 ${{ github.sha }} || { docker logs api; exit 1; }
+          docker stop api
+
+      - name: Publication sur Docker Hub
+        if: env.PUBLISH == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+          docker tag imu-api:ci "$IMAGE:${{ github.sha }}"
+          docker tag imu-api:ci "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+          docker logout
+          echo "Image publiée : https://hub.docker.com/r/$IMAGE (tag ${{ github.sha }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Image non publiée
+        if: env.PUBLISH != 'true'
+        run: echo "Image construite et testée, non publiée (hors main, ou identifiants Docker Hub absents)." >> "$GITHUB_STEP_SUMMARY"
