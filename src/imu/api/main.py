@@ -3,7 +3,7 @@
     MLFLOW_PORT=5001 uv run uvicorn imu.api.main:app --port 8000
     MODEL_URI=models:/imu-classifier@staging uv run uvicorn imu.api.main:app    # autre alias
 
-Routes : POST /v1/predict, GET /health. Documentation : /docs (Swagger).
+Routes : POST /v1/predict, GET /health. Documentation : /docs (Swagger). Web app de test : /app/.
 Le modèle est chargé une fois au démarrage depuis le registry MLflow, par nom et alias.
 """
 
@@ -12,11 +12,13 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 import mlflow
 import numpy as np
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from mlflow import MlflowClient
 
 from imu.api.schemas import Health, Prediction, Ride
@@ -149,3 +151,12 @@ def predict(ride: Ride) -> Prediction:
 
 
 app.include_router(v1)
+
+# Web app de test : page statique servie par l'API elle-même (même origine, pas de CORS à régler).
+WEB_DIR = Path(__file__).parent.parent / "web" / "static"
+app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="web")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse("/app/")
