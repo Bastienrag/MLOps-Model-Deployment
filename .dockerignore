@@ -1,0 +1,12 @@
+# Liste blanche : rien n'entre dans le contexte de build (donc dans l'image) sans être listé ici.
+# Ni .env, ni données, ni .git, ni clés.
+*
+!pyproject.toml
+!uv.lock
+!.python-version
+!src
+!models/cnn.pt
+!models/meta.json
+
+**/__pycache__
+**/*.pyc
