@@ -1,0 +1,27 @@
+[
+  {
+    "file": "safe.json",
+    "true_class": "Safe",
+    "label": "Safe (réel)"
+  },
+  {
+    "file": "safe-overall.json",
+    "true_class": "Safe overall",
+    "label": "Safe overall (réel)"
+  },
+  {
+    "file": "bad-weather.json",
+    "true_class": "Bad weather",
+    "label": "Bad weather (réel)"
+  },
+  {
+    "file": "tandem.json",
+    "true_class": "Tandem",
+    "label": "Tandem (réel)"
+  },
+  {
+    "file": "reckless.json",
+    "true_class": "Reckless",
+    "label": "Reckless (réel)"
+  }
+]

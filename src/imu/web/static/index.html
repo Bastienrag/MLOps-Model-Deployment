@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classification de trajets IMU</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5b6573; --line: #d8dde4;
+    --accent: #1f6feb; --accent-text: #ffffff; --ok: #1a7f37; --bad: #b42318; --bad-bg: #fdecea;
+    --bar: #c9d6ee; --bar-top: #1f6feb;
+    --c1: #1f6feb; --c2: #d4560b; --c3: #1a7f37; --c4: #8250df; --c5: #b08800; --c6: #0e7490;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151a; --card: #1b2028; --text: #e6e9ee; --muted: #9aa5b4; --line: #2e3643;
+      --accent: #4c8dff; --accent-text: #0b1220; --ok: #3fb950; --bad: #ff7b72; --bad-bg: #3a1d1b;
+      --bar: #2a3a57; --bar-top: #4c8dff;
+      --c1: #4c8dff; --c2: #ff8a4c; --c3: #3fb950; --c4: #b392f0; --c5: #e3b341; --c6: #39c5cf;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header, main { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+           padding-top: 24px; padding-bottom: 8px; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  h2 { font-size: 1.05rem; margin: 0 0 12px; }
+  .badge { font-size: .85rem; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
+           background: var(--card); color: var(--muted); }
+  .badge.ok { color: var(--ok); border-color: var(--ok); }
+  .badge.ko { color: var(--bad); border-color: var(--bad); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px;
+            margin: 16px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: .9rem; color: var(--muted); }
+  select, input[type=file] { font: inherit; color: var(--text); max-width: 100%; }
+  select { padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
+  button { font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 6px; border: 0; cursor: pointer;
+           background: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  #summary { color: var(--muted); font-size: .9rem; margin: 12px 0 4px; min-height: 1.4em; }
+  canvas { width: 100%; height: 220px; display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .8rem; color: var(--muted); margin: 6px 0 14px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+  #error { background: var(--bad-bg); color: var(--bad); border: 1px solid var(--bad); border-radius: 10px;
+           padding: 12px 16px; margin: 16px 0; }
+  #error strong { display: block; margin-bottom: 4px; }
+  #error ul { margin: 6px 0 0; padding-left: 20px; }
+  .verdict { font-size: 1.8rem; font-weight: 700; margin: 0; }
+  .verdict small { font-size: 1rem; font-weight: 400; color: var(--muted); margin-left: 8px; }
+  .truth { margin: 4px 0 14px; color: var(--muted); }
+  .truth .match { color: var(--ok); font-weight: 600; }
+  .truth .miss { color: var(--bad); font-weight: 600; }
+  .bars { display: grid; grid-template-columns: max-content 1fr 3.5em; gap: 8px 12px; align-items: center; }
+  .track { background: var(--bar); border-radius: 4px; height: 14px; overflow: hidden; }
+  .fill { background: var(--bar-top); height: 100%; opacity: .55; }
+  .top .fill { opacity: 1; }
+  .top .name, .top .pct { font-weight: 700; }
+  .pct { text-align: right; font-variant-numeric: tabular-nums; }
+  .meta { color: var(--muted); font-size: .85rem; margin: 14px 0 0; }
+  .note { color: var(--muted); font-size: .85rem; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Classification de trajets IMU</h1>
+  <span id="status" class="badge" role="status">Vérification de l'API…</span>
+</header>
+
+<main>
+  <section aria-labelledby="h-input">
+    <h2 id="h-input">1. Choisir un trajet</h2>
+    <div class="row">
+      <label>Trajet d'exemple
+        <select id="example"><option value="">Chargement…</option></select>
+      </label>
+      <label>ou charger un fichier (JSON ou CSV)
+        <input type="file" id="file" accept=".json,.csv,application/json,text/csv">
+      </label>
+    </div>
+    <p id="summary">Aucun trajet sélectionné.</p>
+    <canvas id="plot" aria-label="Signaux du trajet sélectionné" hidden></canvas>
+    <div class="legend" id="legend" hidden></div>
+    <button id="predict" disabled>Prédire la catégorie</button>
+    <p class="note">Le fichier CSV doit avoir les colonnes <code>ax ay az rx ry rz</code> (cellule vide = mesure
+      manquante). Un fichier JSON contient une liste de mesures, ou un objet avec une clé <code>samples</code>.
+      256 mesures au minimum, au pas de 100 ms.</p>
+  </section>
+
+  <div id="error" role="alert" hidden></div>
+
+  <section id="result" aria-labelledby="h-result" hidden>
+    <h2 id="h-result">2. Résultat</h2>
+    <p class="verdict"><span id="cls"></span><small id="prob"></small></p>
+    <p class="truth" id="truth" hidden></p>
+    <div class="bars" id="bars"></div>
+    <p class="meta" id="meta"></p>
+  </section>
+</main>
+
+<script>
+"use strict";
+const SENSORS = ["ax", "ay", "az", "rx", "ry", "rz"];
+const COLORS = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6"];
+const state = { ride: null };
+const $ = (id) => document.getElementById(id);
+
+// ---------- Lecture d'un trajet ----------
+function toSample(source) {
+  const sample = {};
+  for (const k of SENSORS) {
+    const v = source[k];
+    sample[k] = v === undefined || v === null || v === "" || Number.isNaN(Number(v)) ? null : Number(v);
+  }
+  return sample;
+}
+
+function parseJSON(text) {
+  const data = JSON.parse(text);
+  const list = Array.isArray(data) ? data : data.samples;
+  if (!Array.isArray(list)) throw new Error("Le JSON doit être une liste de mesures ou contenir une clé « samples ».");
+  return { rideId: data.ride_id || null, samples: list.map(toSample) };
+}
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (lines.length < 2) throw new Error("Le CSV est vide.");
+  const sep = lines[0].includes(";") ? ";" : ",";
+  const header = lines[0].split(sep).map((h) => h.trim().toLowerCase());
+  const missing = SENSORS.filter((k) => !header.includes(k));
+  if (missing.length) throw new Error("Colonnes manquantes dans le CSV : " + missing.join(", ") + ".");
+  const samples = lines.slice(1).map((line) => {
+    const cells = line.split(sep);
+    const row = {};
+    SENSORS.forEach((k) => { row[k] = cells[header.indexOf(k)]; });
+    return toSample(row);
+  });
+  return { rideId: null, samples };
+}
+
+// ---------- Affichage ----------
+function showError(title, details) {
+  const box = $("error");
+  box.replaceChildren();
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  box.append(strong);
+  if (details && details.length) {
+    const ul = document.createElement("ul");
+    details.forEach((d) => { const li = document.createElement("li"); li.textContent = d; ul.append(li); });
+    box.append(ul);
+  }
+  box.hidden = false;
+}
+const clearError = () => { $("error").hidden = true; };
+
+function setRide(ride) {
+  state.ride = ride;
+  clearError();
+  $("result").hidden = true;
+  const n = ride.samples.length;
+  const missing = ride.samples.filter((s) => s.ax === null).length;
+  $("summary").textContent = `${n} mesures (${(n / 10).toFixed(0)} s)` +
+    (missing ? `, dont ${missing} manquantes` : "") + ".";
+  $("predict").disabled = false;
+  drawPlot(ride.samples);
+}
+
+function drawPlot(samples) {
+  const canvas = $("plot");
+  canvas.hidden = false;
+  $("legend").hidden = false;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const panels = [{ keys: ["ax", "ay", "az"], y0: 0 }, { keys: ["rx", "ry", "rz"], y0: h / 2 + 4 }];
+  const ph = h / 2 - 8;
+  ctx.lineWidth = 1;
+  panels.forEach((p) => {
+    const vals = p.keys.flatMap((k) => samples.map((s) => s[k]).filter((v) => v !== null));
+    const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+    ctx.strokeStyle = css.getPropertyValue("--line");
+    ctx.strokeRect(0.5, p.y0 + 0.5, w - 1, ph);
+    p.keys.forEach((k) => {
+      ctx.strokeStyle = css.getPropertyValue(COLORS[SENSORS.indexOf(k)]);
+      ctx.beginPath();
+      let pen = false;
+      samples.forEach((s, i) => {
+        if (s[k] === null) { pen = false; return; }
+        const x = (i / Math.max(samples.length - 1, 1)) * w;
+        const y = p.y0 + ph - ((s[k] - lo) / span) * (ph - 4) - 2;
+        if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
+      });
+      ctx.stroke();
+    });
+  });
+  const legend = $("legend");
+  legend.replaceChildren();
+  const names = { ax: "ax", ay: "ay", az: "az (accélération, haut)", rx: "rx", ry: "ry", rz: "rz (gyroscope, bas)" };
+  SENSORS.forEach((k, i) => {
+    const span = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.style.background = css.getPropertyValue(COLORS[i]);
+    span.append(swatch, names[k]);
+    legend.append(span);
+  });
+}
+
+function formatDetail(d) {
+  const path = (d.loc || []).slice(1).map((p, i) => (typeof p === "number" ? `[${p}]` : (i ? "." : "") + p)).join("");
+  return (path ? path + " : " : "") + d.msg;
+}
+
+function showResult(body) {
+  clearError();
+  $("cls").textContent = body.predicted_class;
+  $("prob").textContent = `probabilité ${(body.probability * 100).toFixed(1)} %`;
+  const truth = $("truth");
+  if (state.ride.trueClass) {
+    const ok = state.ride.trueClass === body.predicted_class;
+    truth.replaceChildren(`Classe réelle de ce trajet : ${state.ride.trueClass} — `);
+    const verdict = document.createElement("span");
+    verdict.className = ok ? "match" : "miss";
+    verdict.textContent = ok ? "bien classé" : "mal classé";
+    truth.append(verdict);
+    truth.hidden = false;
+  } else {
+    truth.hidden = true;
+  }
+  const bars = $("bars");
+  bars.replaceChildren();
+  Object.entries(body.probabilities).forEach(([name, p]) => {
+    const label = document.createElement("span"); label.className = "name"; label.textContent = name;
+    const track = document.createElement("div"); track.className = "track";
+    const fill = document.createElement("div"); fill.className = "fill"; fill.style.width = (p * 100).toFixed(1) + "%";
+    track.append(fill);
+    const pct = document.createElement("span"); pct.className = "pct"; pct.textContent = (p * 100).toFixed(1) + " %";
+    const row = document.createElement("div"); row.style.display = "contents";
+    if (name === body.predicted_class) row.className = "top";
+    row.append(label, track, pct);
+    bars.append(row);
+  });
+  $("meta").textContent = `${body.n_windows} fenêtres de 256 points moyennées · modèle version ${body.model_version}`;
+  $("result").hidden = false;
+}
+
+// ---------- Appels à l'API ----------
+async function predict() {
+  const button = $("predict");
+  button.disabled = true;
+  button.textContent = "Prédiction…";
+  clearError();
+  try {
+    const res = await fetch("/v1/predict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ride_id: state.ride.rideId, samples: state.ride.samples }),
+    });
+    const text = await res.text();
+    let body = null;
+    try { body = JSON.parse(text); } catch (_) { /* réponse non JSON */ }
+    if (res.ok) return showResult(body);
+    $("result").hidden = true;
+    if (res.status === 422 && body && Array.isArray(body.detail)) {
+      const shown = body.detail.slice(0, 8).map(formatDetail);
+      if (body.detail.length > 8) shown.push(`… et ${body.detail.length - 8} autres erreurs`);
+      showError("Trajet refusé par l'API (entrée invalide)", shown);
+    } else if (res.status === 503) {
+      showError("Service indisponible", ["Le modèle n'est pas chargé côté serveur. Réessayer dans un instant."]);
+      refreshStatus();
+    } else {
+      showError(`Erreur inattendue de l'API (HTTP ${res.status})`, [(body && body.detail) || text.slice(0, 200)]);
+    }
+  } catch (err) {
+    $("result").hidden = true;
+    showError("Impossible de joindre l'API", ["Vérifier que le serveur tourne et recharger la page."]);
+    refreshStatus();
+  } finally {
+    button.textContent = "Prédire la catégorie";
+    button.disabled = !state.ride;
+  }
+}
+
+async function refreshStatus() {
+  const badge = $("status");
+  try {
+    const res = await fetch("/health");
+    const body = await res.json();
+    badge.className = "badge " + (res.ok ? "ok" : "ko");
+    badge.textContent = res.ok ? `API prête · modèle version ${body.model_version}` : "API indisponible · modèle non chargé";
+  } catch (_) {
+    badge.className = "badge ko";
+    badge.textContent = "API injoignable";
+  }
+}
+
+async function loadExamples() {
+  const select = $("example");
+  try {
+    const res = await fetch("examples/index.json");
+    const items = await res.json();
+    select.replaceChildren(new Option("— choisir —", ""));
+    items.forEach((it) => select.append(new Option(it.label, it.file)));
+  } catch (_) {
+    select.replaceChildren(new Option("Exemples indisponibles", ""));
+  }
+}
+
+$("example").addEventListener("change", async (e) => {
+  if (!e.target.value) return;
+  $("file").value = "";
+  try {
+    const ex = await (await fetch("examples/" + e.target.value)).json();
+    const samples = ex.rows.map((r) => toSample(Object.fromEntries(ex.columns.map((c, i) => [c, r[i]]))));
+    setRide({ rideId: ex.ride_id, samples, trueClass: ex.true_class });
+  } catch (_) {
+    showError("Impossible de charger l'exemple", []);
+  }
+});
+
+$("file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  $("example").value = "";
+  try {
+    const text = await file.text();
+    const ride = file.name.toLowerCase().endsWith(".csv") ? parseCSV(text) : parseJSON(text);
+    if (!ride.samples.length) throw new Error("Le fichier ne contient aucune mesure.");
+    setRide({ ...ride, rideId: ride.rideId || file.name.replace(/\.[^.]+$/, "").slice(0, 128) });
+  } catch (err) {
+    state.ride = null;
+    $("predict").disabled = true;
+    showError("Fichier illisible", [err.message]);
+  }
+});
+
+$("predict").addEventListener("click", predict);
+window.addEventListener("resize", () => { if (state.ride) drawPlot(state.ride.samples); });
+refreshStatus();
+loadExamples();
+</script>
+</body>
+</html>
