@@ -175,3 +175,25 @@ Le prétraitement de l'API est celui de l'entraînement (mêmes fonctions de `im
 trajet, l'API renvoie exactement les probabilités de l'évaluation hors ligne.
 
 Les tests (`uv run pytest`) injectent un faux modèle : ils tournent sans serveur MLflow.
+
+## Web app de test
+
+Une page web, servie par l'API elle-même, permet d'essayer le modèle sans écrire de requête.
+Lancer l'API (voir ci-dessus), puis ouvrir **http://localhost:8000/app/**.
+
+1. **Choisir un trajet** : un des 5 trajets d'exemple (un par catégorie, extraits du jeu de test
+   GBG500, 600 mesures chacun), ou charger un fichier. Le fichier est soit un CSV avec les colonnes
+   `ax ay az rx ry rz` (une cellule vide est une mesure manquante, les autres colonnes sont ignorées),
+   soit un JSON : une liste de mesures, ou un objet avec une clé `samples`. Les signaux du trajet
+   s'affichent (accélération en haut, gyroscope en bas).
+2. **Prédire** : la page appelle `POST /v1/predict` et affiche la catégorie, sa probabilité et les
+   probabilités des 5 classes. Pour un trajet d'exemple, la page rappelle la vraie catégorie.
+
+Les erreurs de l'API sont affichées en clair : une entrée invalide (422) liste les champs en cause
+(`samples[5].ry : …`), un modèle non chargé (503) indique que le service est indisponible, et une API
+injoignable est signalée. Le bandeau en haut montre l'état de `/health` et la version du modèle.
+
+Sur ces extraits d'une minute, le modèle ne classe pas tous les exemples correctement (c'est un
+modèle modeste, voir l'évaluation) : la page sert à montrer le fonctionnement de la chaîne, pas à
+promettre une précision. Les exemples se régénèrent avec `uv run python -m imu.web.make_examples`
+(nécessite les données, `dvc pull`).
