@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# MLflow local
+mlruns/
+mlflow.db
+
+# Artefacts
+model/
+logs/
+!.dvc/
+reports/*.html
+reports/load_*
+reports/*.csv
+reports/*.png
+
+# Secrets
+.env
+
+# IDE
+.idea/
+.vscode/
