@@ -38,3 +38,123 @@ stages:
       md5: f216265119ff5e8acab4423410d74b36.dir
       size: 30815185
       nfiles: 5
+  baseline:
+    cmd: python -m imu.baseline
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: f216265119ff5e8acab4423410d74b36.dir
+      size: 30815185
+      nfiles: 5
+    - path: src/imu/baseline.py
+      hash: md5
+      md5: bba096e53d48e7e6cb63a61928b8ec10
+      size: 2575
+    - path: src/imu/evaluate.py
+      hash: md5
+      md5: e5523ef2e9673c999ae5541c05416ca6
+      size: 1503
+    params:
+      params.yaml:
+        baseline:
+          seed: 42
+          max_iter: 2000
+    outs:
+    - path: reports/baseline.json
+      hash: md5
+      md5: 225b4553cbe71ac9661f199b462d2ebd
+      size: 7194
+  train:
+    cmd: python -m imu.train
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: f216265119ff5e8acab4423410d74b36.dir
+      size: 30815185
+      nfiles: 5
+    - path: src/imu/evaluate.py
+      hash: md5
+      md5: e5523ef2e9673c999ae5541c05416ca6
+      size: 1503
+    - path: src/imu/model.py
+      hash: md5
+      md5: ee8e99438470a4664da80f4b7a215f58
+      size: 1004
+    - path: src/imu/train.py
+      hash: md5
+      md5: c761aaf38b42b332f6325b0ba6700907
+      size: 4732
+    params:
+      params.yaml:
+        train:
+          seed: 42
+          threads: 1
+          epochs: 15
+          patience: 5
+          batch_size: 64
+          learning_rate: 0.001
+          weight_decay: 0.05
+          dropout: 0.5
+          noise_std: 0.2
+          scale_jitter: 0.2
+          channels:
+          - 8
+          - 16
+          - 16
+          class_weight_power: 1.0
+    outs:
+    - path: models/cnn.pt
+      hash: md5
+      md5: 7d473ae5672152d9a3522e6f4396285c
+      size: 15082
+    - path: reports/cnn.json
+      hash: md5
+      md5: f0d45e96e2a3c00f83b17003d518635a
+      size: 4686
+  cv:
+    cmd: python -m imu.cv
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: f216265119ff5e8acab4423410d74b36.dir
+      size: 30815185
+      nfiles: 5
+    - path: src/imu/cv.py
+      hash: md5
+      md5: d0697ea9021de02ef19496a58674a449
+      size: 3952
+    - path: src/imu/model.py
+      hash: md5
+      md5: ee8e99438470a4664da80f4b7a215f58
+      size: 1004
+    - path: src/imu/train.py
+      hash: md5
+      md5: c761aaf38b42b332f6325b0ba6700907
+      size: 4732
+    params:
+      params.yaml:
+        cv:
+          folds: 5
+          seed: 42
+          epochs: 15
+        train:
+          seed: 42
+          threads: 1
+          epochs: 15
+          patience: 5
+          batch_size: 64
+          learning_rate: 0.001
+          weight_decay: 0.05
+          dropout: 0.5
+          noise_std: 0.2
+          scale_jitter: 0.2
+          channels:
+          - 8
+          - 16
+          - 16
+          class_weight_power: 1.0
+    outs:
+    - path: reports/cv.json
+      hash: md5
+      md5: e6a76e9e93a7a5fe8bc2fdbbaf894960
+      size: 3475
