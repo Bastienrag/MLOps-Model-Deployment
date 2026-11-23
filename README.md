@@ -254,8 +254,10 @@ registry. La version annoncée par l'API dans chaque réponse est le commit qui 
   prédiction, les probabilités et le refus d'une entrée invalide en 422. Il tourne en local et en CI.
 
 **Publication.** Le job `docker` de la CI construit l'image après le lint, les tests et le gate. Sur un
-push vers `main`, une fois le smoke test réussi, il la pousse sur Docker Hub avec deux tags : le commit
-(`<compte>/imu-api:<sha complet>`) et `latest`. Réglages du dépôt, à faire une fois :
+push vers `main`, une fois le smoke test réussi, il la pousse sur Docker Hub sous `<commit>-amd64`. Le
+workflow de déploiement (voir plus bas) construit la version arm64, la pousse sous `<commit>-arm64`, puis
+réunit les deux en un manifeste multi-architecture : `basutsu/imu-api:<commit complet>` et `:latest`.
+Réglages du dépôt, à faire une fois :
 
 ```bash
 gh variable set DOCKERHUB_USERNAME --body basutsu
@@ -271,8 +273,7 @@ docker run --rm -p 8000:8000 basutsu/imu-api:latest      # ou un tag précis : b
 ```
 
 Le tag est le commit complet qui a produit l'image ; c'est aussi la version du modèle renvoyée par l'API.
-L'image est construite par la CI sur une architecture **amd64** : sur un Mac Apple Silicon ou une machine
-arm64, Docker l'exécute par émulation, ou on la reconstruit localement avec `docker build` (voir plus haut).
+Le tag du commit est multi-architecture (amd64 et arm64) : Docker choisit celle de la machine.
 
 ## Déploiement sur Kubernetes local (kind)
 
@@ -315,3 +316,44 @@ pour 4 767 points).
 - Un pod démarré avec une readiness en échec reste `0/1` : il est listé `notReady` dans les endpoints, et
   60 requêtes via le Service ont réussi.
 - Un pod dont la liveness échoue est redémarré par Kubernetes (`RESTARTS=1`).
+
+## Déploiement automatique (GitHub Actions et runner auto-hébergé)
+
+`.github/workflows/deploy.yml` se déclenche **uniquement** quand la CI vient de réussir sur un push vers
+`main` (jamais sur une pull request ni un fork). Il enchaîne, sur un runner installé sur la machine qui
+héberge le cluster :
+
+1. **`guard`** (runner GitHub) : vérifie que la CI est verte, que c'est un push de ce dépôt vers `main`.
+2. **`deploy`** (runner auto-hébergé, étiquette `imu-kind`) : construit l'image arm64, la teste (smoke
+   test), la publie sur Docker Hub (manifeste multi-architecture), la charge dans kind, applique les
+   manifestes et attend la fin du rollout (`kubectl rollout status`).
+3. **Vérification et rollback** : le déploiement n'est réussi que si les pods sont prêts et si l'API déployée
+   répond avec la bonne version du modèle. Sinon `kubectl rollout undo` rétablit la version précédente et le
+   job passe au rouge. Pendant ce temps les anciens pods continuent à servir (`maxUnavailable: 0`).
+
+**Démonstration du rollback** (déploie une image inexistante, sans rien casser ni publier) :
+
+```bash
+gh workflow run deploy.yml -f simulate_failure=true
+```
+
+**Installer le runner** (une fois, sur la machine du cluster ; le dossier est hors du dépôt) :
+
+```bash
+mkdir ~/actions-runner && cd ~/actions-runner
+# télécharger actions-runner-linux-<arch>-<version>.tar.gz depuis github.com/actions/runner/releases, l'extraire
+./config.sh --url https://github.com/<compte>/<dépôt> --token <jeton> --labels imu-kind
+./run.sh                 # ou un service systemd : sudo ./svc.sh install && sudo ./svc.sh start
+```
+
+Le jeton vient de Settings > Actions > Runners > New self-hosted runner (ou
+`gh api -X POST repos/<compte>/<dépôt>/actions/runners/registration-token`). Le runner a besoin de Docker,
+`kind` et `kubectl` dans son `PATH` et d'un accès au groupe `docker`.
+
+**Sécurité.** Un runner auto-hébergé exécute le code du workflow avec les droits de l'utilisateur de la
+machine. Sur un dépôt public, une pull request malveillante pourrait en abuser. Mesures prises : seul
+`deploy.yml` utilise le runner, uniquement après une CI réussie sur `main` ou à la main par un
+collaborateur ; la CI et les pull requests tournent sur les runners GitHub ; les actions sont épinglées ;
+le jeton Docker Hub n'est lisible que par l'étape de publication, dans une configuration Docker jetable.
+`tests/test_workflows.py` vérifie ces règles. À régler côté GitHub : Settings > Actions > General >
+« Fork pull request workflows » : exiger l'approbation pour tous les contributeurs extérieurs.
