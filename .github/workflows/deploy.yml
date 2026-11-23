@@ -1,0 +1,147 @@
+name: Déploiement
+
+# Après un push sur main dont la CI est verte : construit l'image, la publie sur Docker Hub et la déploie sur
+# le cluster kind de la machine, grâce à un runner GitHub auto-hébergé (étiquette `imu-kind`).
+# Un déploiement qui échoue est annulé (kubectl rollout undo).
+#
+# Démonstration du rollback, sans rien casser ni publier :
+#   gh workflow run deploy.yml -f simulate_failure=true
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      simulate_failure:
+        description: "Démontrer le rollback : déploie une image inexistante (rien n'est construit ni publié)"
+        type: boolean
+        default: false
+
+# Un seul déploiement à la fois, jamais interrompu en cours de route.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  # Sur un runner GitHub, jamais sur la machine : décide si le déploiement a le droit d'avoir lieu.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      allowed: ${{ steps.decide.outputs.allowed }}
+      sha: ${{ steps.decide.outputs.sha }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          # workflow_run : la CI qui vient de finir
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          # workflow_dispatch : le commit sur lequel le workflow a été lancé
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          allowed=false
+          if [ "$EVENT" = "workflow_run" ]; then
+            sha="$RUN_SHA"
+            # CI verte, sur un push de ce dépôt (jamais une pull request, ni un fork) vers main
+            if [ "$RUN_CONCLUSION" = "success" ] && [ "$RUN_EVENT" = "push" ] \
+               && [ "$RUN_BRANCH" = "main" ] && [ "$RUN_REPO" = "$REPO" ]; then allowed=true; fi
+          else
+            sha="$SHA"
+            # lancement manuel : seulement depuis main, et seulement si la CI de ce commit a réussi
+            green=$(gh run list --repo "$REPO" --workflow ci.yml --commit "$sha" --status success --json databaseId --jq length)
+            if [ "$REF" = "refs/heads/main" ] && [ "$green" -gt 0 ]; then allowed=true; fi
+          fi
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Déploiement du commit $sha autorisé : $allowed" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: guard
+    if: needs.guard.outputs.allowed == 'true'
+    runs-on: [self-hosted, imu-kind]
+    timeout-minutes: 30
+    env:
+      SHA: ${{ needs.guard.outputs.sha }}
+      IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/imu-api
+      SIMULATE_FAILURE: ${{ inputs.simulate_failure }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+          persist-credentials: false
+
+      # Le runner est en arm64 comme le cluster : l'image construite ici est celle qui tourne.
+      - name: Construction de l'image
+        if: env.SIMULATE_FAILURE != 'true'
+        run: docker build --build-arg GIT_SHA="$SHA" -t "imu-api:${SHA::7}" -t "$IMAGE:$SHA-arm64" .
+
+      - name: Smoke test de l'image
+        if: env.SIMULATE_FAILURE != 'true'
+        run: |
+          cid=$(docker run -d --rm -p 18000:8000 "imu-api:${SHA::7}")
+          trap 'docker stop "$cid" >/dev/null' EXIT
+          python3 ci/smoke_test.py http://localhost:18000 "$SHA"
+
+      # La CI a publié $SHA-amd64 ; on ajoute $SHA-arm64 et on les réunit : un seul tag, deux architectures.
+      - name: Publication sur Docker Hub
+        if: env.SIMULATE_FAILURE != 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          # Configuration Docker jetable : le jeton ne touche pas à ~/.docker de la machine.
+          export DOCKER_CONFIG="$(mktemp -d)"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+          docker push "$IMAGE:$SHA-arm64"
+          docker buildx imagetools create -t "$IMAGE:$SHA" -t "$IMAGE:latest" "$IMAGE:$SHA-amd64" "$IMAGE:$SHA-arm64"
+          echo "Image publiée : https://hub.docker.com/r/$IMAGE (tag $SHA, amd64 et arm64)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Déploiement sur kind et attente du rollout
+        run: |
+          set -u
+          if [ "$SIMULATE_FAILURE" = "true" ]; then
+            image="imu-api:inexistante"   # aucun pod ne pourra démarrer avec cette image
+            timeout=60s
+          else
+            image="imu-api:${SHA::7}"
+            timeout=180s
+            kind load docker-image "$image" --name imu || { echo "::error::chargement de l'image dans kind impossible"; exit 1; }
+          fi
+          previous=$(kubectl get deployment/imu-api -o jsonpath='{.spec.template.spec.containers[0].image}')
+          echo "Version en place : $previous -> nouvelle version : $image"
+
+          sed "s|image: imu-api:dev|image: $image|" k8s/deployment.yaml | kubectl apply -f k8s/configmap.yaml -f - -f k8s/service.yaml
+
+          # Le rollout n'est réussi que si les nouveaux pods sont prêts ET si l'API déployée répond
+          # avec la bonne version du modèle.
+          verify() {
+            kubectl rollout status deployment/imu-api --timeout="$timeout" \
+              && { [ "$SIMULATE_FAILURE" = "true" ] || python3 ci/smoke_test.py http://localhost:8080 "$SHA"; }
+          }
+          if verify; then
+            echo "### Déploiement réussi : $image" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Déploiement échoué, retour à la version précédente ($previous)"
+            kubectl rollout undo deployment/imu-api
+            kubectl rollout status deployment/imu-api --timeout=120s
+            echo "### Déploiement ÉCHOUÉ : retour à $previous" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: État du cluster
+        if: always()
+        run: kubectl get pods -o wide && kubectl get deployment imu-api

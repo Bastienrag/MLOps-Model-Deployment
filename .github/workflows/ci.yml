@@ -2,7 +2,8 @@ name: CI
 
 # À chaque push et pull request : lint, tests, gate d'évaluation du modèle, puis image Docker.
 # Le job `docker` ne démarre que si les deux premiers ont réussi (`needs`). Il construit l'image et la
-# teste ; il ne la publie sur Docker Hub que sur un push vers main, une fois le smoke test réussi.
+# teste ; il ne la publie sur Docker Hub (tag <commit>-amd64) que sur un push vers main, une fois le smoke
+# test réussi. Le déploiement (deploy.yml) ajoute l'arm64 et réunit les deux sous le tag <commit>.
 #
 # Réglages du dépôt pour la publication (sans eux, l'image est construite et testée, pas publiée) :
 #   gh variable set DOCKERHUB_USERNAME --body <compte>
@@ -119,12 +120,10 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-          docker tag imu-api:ci "$IMAGE:${{ github.sha }}"
-          docker tag imu-api:ci "$IMAGE:latest"
-          docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:latest"
+          docker tag imu-api:ci "$IMAGE:${{ github.sha }}-amd64"
+          docker push "$IMAGE:${{ github.sha }}-amd64"
           docker logout
-          echo "Image publiée : https://hub.docker.com/r/$IMAGE (tag ${{ github.sha }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "Image publiée : https://hub.docker.com/r/$IMAGE (tag ${{ github.sha }}-amd64)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Image non publiée
         if: env.PUBLISH != 'true'
