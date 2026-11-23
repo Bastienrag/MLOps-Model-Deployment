@@ -1,0 +1,5 @@
+outs:
+- md5: f7eb702062e890c9f3c533e5eaa683b7
+  size: 30206760
+  hash: md5
+  path: GBG500.parquet

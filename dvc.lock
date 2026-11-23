@@ -1,0 +1,40 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python -m imu.data
+    deps:
+    - path: data/raw/GBG500.parquet
+      hash: md5
+      md5: f7eb702062e890c9f3c533e5eaa683b7
+      size: 30206760
+    - path: data/raw/GBG500_labels.csv
+      hash: md5
+      md5: 843abe6d85802a850c945519678d2232
+      size: 35532
+    - path: src/imu/data.py
+      hash: md5
+      md5: 5cb4af22cd7db2cd2a8516b6833d8966
+      size: 5367
+    params:
+      params.yaml:
+        data:
+          raw_path: data/raw/GBG500.parquet
+          labels_path: data/raw/GBG500_labels.csv
+          processed_dir: data/processed
+          classes:
+          - Safe
+          - Safe overall
+          - Bad weather
+          - Tandem
+          - Reckless
+          window: 256
+          stride: 128
+          train_share: 0.7
+          val_share: 0.15
+          seed: 42
+    outs:
+    - path: data/processed
+      hash: md5
+      md5: f216265119ff5e8acab4423410d74b36.dir
+      size: 30815185
+      nfiles: 5
