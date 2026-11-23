@@ -149,3 +149,29 @@ et compare chaque métrique ; il affiche `REPRODUIT` ou `NON REPRODUCTIBLE`.
 
 Les artefacts passent par le serveur MLflow (`--serve-artifacts`) : le client n'a besoin d'aucune clé S3.
 Il désactive le téléchargement par URL présignée, qui pointerait vers `s3:8333`, une adresse interne à Docker.
+
+## API de prédiction
+
+L'API charge une fois, au démarrage, le modèle `models:/imu-classifier@production` du registry MLflow
+(`MODEL_URI` pour un autre alias) et les statistiques de normalisation enregistrées avec lui.
+
+```bash
+export MLFLOW_PORT=5001                        # le serveur MLflow doit tourner (docker compose up -d)
+uv run uvicorn imu.api.main:app --port 8000
+```
+
+- Documentation Swagger : http://localhost:8000/docs (l'exemple de requête est un trajet valide :
+  « Try it out » fonctionne directement).
+- `POST /v1/predict` : un trajet (`samples`, de 256 à 10 000 mesures `ax ay az rx ry rz`, au pas de
+  100 ms, et un `ride_id` facultatif) -> `predicted_class`, `probability`, `probabilities` des 5 classes,
+  `n_windows` et `model_version`. Une ligne manquante s'envoie avec ses 6 valeurs à `null` : elle est
+  interpolée comme à l'entraînement.
+- `GET /health` : `200` si le modèle est chargé, `503` sinon. La prédiction répond aussi `503` sans
+  modèle, et `422` avec le détail des champs en cause pour une entrée invalide (hors bornes, champ
+  inconnu, trajet trop court, ligne à moitié vide).
+- Chaque réponse porte la version du modèle (champ `model_version` et en-tête `X-Model-Version`).
+
+Le prétraitement de l'API est celui de l'entraînement (mêmes fonctions de `imu.data`) : pour un même
+trajet, l'API renvoie exactement les probabilités de l'évaluation hors ligne.
+
+Les tests (`uv run pytest`) injectent un faux modèle : ils tournent sans serveur MLflow.
