@@ -197,3 +197,35 @@ Sur ces extraits d'une minute, le modèle ne classe pas tous les exemples correc
 modèle modeste, voir l'évaluation) : la page sert à montrer le fonctionnement de la chaîne, pas à
 promettre une précision. Les exemples se régénèrent avec `uv run python -m imu.web.make_examples`
 (nécessite les données, `dvc pull`).
+
+## Intégration continue (GitHub Actions)
+
+`.github/workflows/ci.yml` s'exécute à chaque push et pull request :
+
+1. **`lint-test`** : `uv sync --locked`, `ruff check`, `pytest`.
+2. **`model-gate`** (après `lint-test`) : évalue le modèle sur un jeu figé et échoue sous un seuil.
+
+Le gate (`uv run python -m imu.gate`) évalue `models/cnn.pt` sur `ci/golden.npz`, les 76 trajets du jeu
+de test (une fenêtre sur deux, 2,5 Mo). Il échoue (code 1, job rouge) si la balanced accuracy par trajet
+est sous 0,30 ou le F1 macro sous 0,25 (`gate` dans `params.yaml` ; le hasard donne 0,20). Le modèle
+actuel obtient 0,55 et 0,42. Le rapport est téléchargeable dans les artefacts du run
+(`gate-report`) et résumé dans la page du run.
+
+Les runners GitHub n'atteignent ni le remote DVC ni le registry (ils sont locaux). Le modèle (15 Ko) et le
+jeu figé sont donc versionnés dans Git, produits par les étapes `train` et `golden` du pipeline DVC
+(`cache: false`). Après un réentraînement : `dvc repro`, puis commiter `models/cnn.pt`, `ci/golden.npz` et
+`dvc.lock`.
+
+Bonnes pratiques appliquées : actions épinglées par empreinte de commit, `permissions: contents: read`,
+`timeout-minutes` sur chaque job, annulation des exécutions obsolètes (`concurrency`), version d'uv fixée.
+Aucun job ne publie quoi que ce soit : l'image Docker n'est construite et poussée qu'après la réussite des
+deux jobs.
+
+**Vérifier qu'un échec met la pipeline au rouge** (échec volontaire, sans toucher au code) :
+
+```bash
+gh workflow run ci.yml -f gate_min_balanced_accuracy=0.99
+gh run watch
+```
+
+En local : `uv run python -m imu.gate`, avec `GATE_MIN_BALANCED_ACCURACY=0.99` pour provoquer l'échec.
