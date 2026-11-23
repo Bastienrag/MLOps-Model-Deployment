@@ -77,3 +77,35 @@ Le prétraitement (`src/imu/data.py`, paramètres dans `params.yaml`) :
   aucun trajet n'a de fenêtres dans deux jeux. La prédiction d'un trajet agrège celles de ses fenêtres.
 - **Normalisation** : moyenne et écart-type par capteur calculés sur le train seul
   (`data/processed/meta.json`).
+
+## Modèle et évaluation
+
+```bash
+uv run dvc repro        # prétraitement, baselines, CNN, validation croisée
+uv run python -m imu.train   # le CNN seul : models/cnn.pt et reports/cnn.json
+```
+
+- **Baselines** (`src/imu/baseline.py`) : classe majoritaire, et régression logistique pondérée
+  sur 30 statistiques par fenêtre (moyenne, écart-type, min, max, variation de chaque capteur).
+- **Modèle** (`src/imu/model.py`) : CNN 1D de 3 couches (8, 16, 16 canaux), pooling moyenne + max
+  dans le temps, 5 sorties. Le réseau est petit à dessein : 350 trajets d'entraînement seulement.
+  Un trajet est classé en moyennant les probabilités de ses fenêtres.
+- **Déséquilibre** : perte pondérée par l'inverse de l'effectif de chaque classe, et
+  augmentation par bruit et variation d'échelle. Métriques : F1 macro, balanced accuracy, matrice
+  de confusion et rappel par classe (jamais l'accuracy seule : prédire « Safe » partout donne 0,83).
+- **Reproductibilité** : graines et nombre de threads fixés, deux entraînements donnent le même
+  `models/cnn.pt` à l'octet près.
+
+**Validation croisée** (`src/imu/cv.py`) : 5 plis stratifiés par trajet sur train + val (424 trajets,
+dont 5 Reckless). Les jeux de validation et de test ne contiennent qu'un trajet Reckless chacun :
+leurs scores varient beaucoup d'un tirage à l'autre, la validation croisée est la mesure à retenir.
+
+| Modèle | F1 macro | Balanced accuracy |
+|---|---|---|
+| Hasard / classe majoritaire | 0,18 | 0,20 |
+| Régression logistique | 0,32 | 0,50 |
+| CNN | 0,37 | 0,43 |
+
+Le CNN est nettement au-dessus du hasard. Il ne dépasse que de peu la régression logistique
+(meilleur en F1 macro, moins bon en balanced accuracy) : les classes Tandem et Bad weather sont mal
+reconnues. Les scores sur le jeu de test (`reports/cnn.json`) sont donnés à titre indicatif.
