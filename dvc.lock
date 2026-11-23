@@ -13,8 +13,8 @@ stages:
       size: 35532
     - path: src/imu/data.py
       hash: md5
-      md5: 5cb4af22cd7db2cd2a8516b6833d8966
-      size: 5367
+      md5: 417661884021cc57d0223b32d6f92d24
+      size: 5402
     params:
       params.yaml:
         data:
@@ -180,3 +180,26 @@ stages:
       hash: md5
       md5: 06f60ab94ef7fa7288f4b9c01419c5ca
       size: 2468430
+  bundle:
+    cmd: python -m imu.bundle
+    deps:
+    - path: data/processed/meta.json
+      hash: md5
+      md5: 1057898098d66fbdb1f704084d40ceec
+      size: 1203
+    - path: src/imu/bundle.py
+      hash: md5
+      md5: 91555af9d9f50ddb46a79f44573fd335
+      size: 1040
+    params:
+      params.yaml:
+        train.channels:
+        - 8
+        - 16
+        - 16
+        train.dropout: 0.5
+    outs:
+    - path: models/meta.json
+      hash: md5
+      md5: 9047e18209ea6ee07129cd5742cc6ed2
+      size: 599
