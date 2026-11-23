@@ -33,3 +33,12 @@ cv:
   folds: 5          # plis stratifiés par trajet, sur train + val
   seed: 42
   epochs: 15
+
+golden:
+  path: ci/golden.npz  # jeu figé du gate, versionné dans Git (voir imu.golden)
+  every: 2             # une fenêtre sur deux de chaque trajet de test
+
+gate:
+  model_path: models/cnn.pt
+  min_balanced_accuracy: 0.30  # le hasard donne 0,20
+  min_f1_macro: 0.25

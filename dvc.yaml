@@ -35,7 +35,9 @@ stages:
     params:
       - train
     outs:
-      - models/cnn.pt
+      # 15 Ko : suivi par Git et non par DVC, pour que la CI (GitHub) dispose du modèle sans remote.
+      - models/cnn.pt:
+          cache: false
     metrics:
       - reports/cnn.json:
           cache: false
@@ -52,4 +54,16 @@ stages:
       - cv
     metrics:
       - reports/cv.json:
+          cache: false
+
+  golden:
+    cmd: python -m imu.golden
+    deps:
+      - src/imu/golden.py
+      - data/processed
+    params:
+      - golden
+    outs:
+      # Petit fichier suivi par Git : la CI l'utilise pour le gate d'évaluation.
+      - ci/golden.npz:
           cache: false
