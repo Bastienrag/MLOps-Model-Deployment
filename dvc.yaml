@@ -1,0 +1,14 @@
+# Pipeline reproductible :  dvc repro  puis  dvc push
+# Les données brutes ne sont pas produites par un stage : elles sont versionnées par
+# `dvc add` (data/raw/*.dvc) et stockées sur le remote S3.
+stages:
+  prepare:
+    cmd: python -m imu.data
+    deps:
+      - src/imu/data.py
+      - data/raw/GBG500.parquet
+      - data/raw/GBG500_labels.csv
+    params:
+      - data
+    outs:
+      - data/processed
