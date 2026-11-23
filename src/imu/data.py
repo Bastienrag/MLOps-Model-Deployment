@@ -12,7 +12,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yaml
-from sklearn.model_selection import train_test_split
 
 SENSORS = ["ax", "ay", "az", "rx", "ry", "rz"]
 
@@ -44,6 +43,8 @@ def clean_ride(ride):
 
 def split_rides(labels, train_share, val_share, seed):
     """Découpe les trajets (jamais les fenêtres) en train/val/test, stratifié par classe."""
+    from sklearn.model_selection import train_test_split  # absent de l'image de l'API
+
     rides = labels.index.to_numpy()
     train, rest = train_test_split(
         rides, train_size=train_share, stratify=labels.loc[rides], random_state=seed

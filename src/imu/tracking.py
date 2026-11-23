@@ -14,12 +14,7 @@ os.environ.setdefault("MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD", "false")
 import mlflow  # noqa: E402
 import yaml  # noqa: E402
 
-MODEL_NAME = os.getenv("MODEL_NAME", "imu-classifier")
-
-
-def tracking_uri():
-    """MLFLOW_TRACKING_URI, sinon localhost sur MLFLOW_PORT (5000)."""
-    return os.getenv("MLFLOW_TRACKING_URI") or f"http://localhost:{os.getenv('MLFLOW_PORT', '5000')}"
+from imu.config import MODEL_NAME, tracking_uri  # noqa: E402,F401
 
 
 def connect():

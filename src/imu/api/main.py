@@ -2,9 +2,11 @@
 
     MLFLOW_PORT=5001 uv run uvicorn imu.api.main:app --port 8000
     MODEL_URI=models:/imu-classifier@staging uv run uvicorn imu.api.main:app    # autre alias
+    MODEL_URI=models uv run uvicorn imu.api.main:app                            # dossier de fichiers
 
 Routes : POST /v1/predict, GET /health. Documentation : /docs (Swagger). Web app de test : /app/.
-Le modèle est chargé une fois au démarrage depuis le registry MLflow, par nom et alias.
+Le modèle est chargé une fois au démarrage : depuis le registry MLflow, par nom et alias (`models:/...`),
+ou depuis un dossier de fichiers (cnn.pt + meta.json), ce que fait l'image Docker, qui n'a pas MLflow.
 """
 
 import json
@@ -14,16 +16,16 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-import mlflow
 import numpy as np
+import torch
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from mlflow import MlflowClient
 
 from imu.api.schemas import Health, Prediction, Ride
+from imu.config import MODEL_NAME, tracking_uri
 from imu.inference import aggregate, preprocess
-from imu.tracking import MODEL_NAME, tracking_uri
+from imu.model import IMUNet
 
 MODEL_URI = os.getenv("MODEL_URI", f"models:/{MODEL_NAME}@production")
 log = logging.getLogger("uvicorn.error")
@@ -45,6 +47,9 @@ state: dict = {"loaded": None}
 
 def load_from_registry(uri):
     """Charge le modèle et les paramètres de prétraitement qui l'accompagnent (meta.json du même run)."""
+    import mlflow  # absent de l'image Docker : importé seulement quand on charge depuis le registry
+    from mlflow import MlflowClient
+
     mlflow.set_tracking_uri(tracking_uri())
     name, _, alias = uri.removeprefix("models:/").partition("@")
     version = MlflowClient().get_model_version_by_alias(name, alias)
@@ -62,12 +67,44 @@ def load_from_registry(uri):
     )
 
 
+class TorchModel:
+    """Même interface que le modèle MLflow : fenêtres (n, 256, 6) -> probabilités (n, 5)."""
+
+    def __init__(self, net):
+        self.net = net.eval()
+
+    def predict(self, windows):
+        with torch.no_grad():
+            return torch.softmax(self.net(torch.from_numpy(windows)), dim=1).numpy()
+
+
+def load_from_files(directory):
+    """Charge cnn.pt et meta.json (classes, fenêtrage, normalisation, architecture) d'un dossier."""
+    directory = Path(directory)
+    meta = json.loads((directory / "meta.json").read_text())
+    net = IMUNet(len(meta["mean"]), len(meta["classes"]), meta["channels"], meta["dropout"])
+    net.load_state_dict(torch.load(directory / "cnn.pt", weights_only=True))
+    return Loaded(
+        model=TorchModel(net),
+        version=os.getenv("MODEL_VERSION", "local"),
+        classes=meta["classes"],
+        mean=np.array(meta["mean"], dtype=np.float32),
+        std=np.array(meta["std"], dtype=np.float32),
+        window=meta["window"],
+        stride=meta["stride"],
+    )
+
+
+def load_model(uri):
+    return load_from_registry(uri) if uri.startswith("models:/") else load_from_files(uri)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Au démarrage, une seule fois. Sans modèle le service démarre quand même :
     /health et /v1/predict répondent alors 503."""
     try:
-        state["loaded"] = load_from_registry(MODEL_URI)
+        state["loaded"] = load_model(MODEL_URI)
         log.info("modèle %s chargé (version %s)", MODEL_URI, state["loaded"].version)
     except Exception as exc:
         state["loaded"] = None
