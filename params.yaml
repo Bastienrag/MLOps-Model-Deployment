@@ -10,3 +10,26 @@ data:
   train_share: 0.70  # découpage par trajet, stratifié par classe
   val_share: 0.15    # le reste (0,15) va au test
   seed: 42
+
+baseline:
+  seed: 42
+  max_iter: 2000
+
+train:
+  seed: 42
+  threads: 1               # fixe, pour que deux machines donnent les mêmes résultats
+  epochs: 15
+  patience: 5              # arrêt si le F1 macro de validation ne progresse plus
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.05
+  dropout: 0.5
+  noise_std: 0.2           # augmentation : bruit gaussien sur les valeurs normalisées
+  scale_jitter: 0.2        # augmentation : variation d'échelle par capteur
+  channels: [8, 16, 16]    # petit réseau : peu de trajets, surapprentissage rapide
+  class_weight_power: 1.0  # poids d'une classe = (1 / effectif) ** power, normalisé ; 0 = pas de pondération
+
+cv:
+  folds: 5          # plis stratifiés par trajet, sur train + val
+  seed: 42
+  epochs: 15

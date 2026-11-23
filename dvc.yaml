@@ -12,3 +12,44 @@ stages:
       - data
     outs:
       - data/processed
+
+  baseline:
+    cmd: python -m imu.baseline
+    deps:
+      - src/imu/baseline.py
+      - src/imu/evaluate.py
+      - data/processed
+    params:
+      - baseline
+    metrics:
+      - reports/baseline.json:
+          cache: false
+
+  train:
+    cmd: python -m imu.train
+    deps:
+      - src/imu/train.py
+      - src/imu/model.py
+      - src/imu/evaluate.py
+      - data/processed
+    params:
+      - train
+    outs:
+      - models/cnn.pt
+    metrics:
+      - reports/cnn.json:
+          cache: false
+
+  cv:
+    cmd: python -m imu.cv
+    deps:
+      - src/imu/cv.py
+      - src/imu/train.py
+      - src/imu/model.py
+      - data/processed
+    params:
+      - train
+      - cv
+    metrics:
+      - reports/cv.json:
+          cache: false
