@@ -1,0 +1,14 @@
+# Configuration de l'API, séparée de l'image : la changer ne demande pas de reconstruire l'image
+# (kubectl apply, puis kubectl rollout restart deploy/imu-api pour que les pods la relisent).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: imu-api-config
+data:
+  # Où l'API cherche son modèle : le dossier embarqué dans l'image. Une URI models:/imu-classifier@staging
+  # chargerait le registry MLflow, absent de l'image.
+  MODEL_URI: /app/models
+  MODEL_NAME: imu-classifier
+  # PyTorch crée un thread par cœur de la machine ; le pod est limité à 0,5 CPU. Un seul thread évite
+  # que les threads se battent pour ce quota (une prédiction coûte environ 10 ms de calcul).
+  OMP_NUM_THREADS: "1"

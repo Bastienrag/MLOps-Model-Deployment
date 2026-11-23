@@ -1,0 +1,13 @@
+# Le Service répartit le trafic entre les pods prêts (ceux dont la readiness réussit).
+# kind-config.yaml expose le NodePort 30080 sur le port 8080 de la machine.
+apiVersion: v1
+kind: Service
+metadata:
+  name: imu-api
+spec:
+  type: NodePort
+  selector: {app: imu-api}
+  ports:
+    - port: 80
+      targetPort: 8000
+      nodePort: 30080

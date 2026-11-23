@@ -1,0 +1,62 @@
+# L'API de prédiction : 3 replicas derrière le Service imu-api.
+#   make kind-up && make kind-deploy
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imu-api
+  labels: {app: imu-api}
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: imu-api}
+  # Mise à jour sans perte de capacité : un pod de plus est démarré, et l'ancien n'est retiré que quand
+  # le nouveau est prêt.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {app: imu-api}
+    spec:
+      containers:
+        - name: api
+          image: imu-api:dev # remplacé par imu-api:<commit> au déploiement (make kind-deploy)
+          imagePullPolicy: IfNotPresent # l'image est chargée dans kind, jamais tirée d'un registry
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef: {name: imu-api-config}
+          # Mesures (conteneur, 40 prédictions puis un trajet de 4 767 points, le plus long du jeu) :
+          #   démarrage jusqu'à /health = 200 : 3,8 s ; mémoire 195 Mo au repos, pic 213 Mo ;
+          #   prédiction : 10 ms en médiane, 157 ms pour le plus long trajet.
+          resources:
+            # mémoire : 256 Mi couvre le fonctionnement normal (195 Mo). CPU : 100m suffit à ~10
+            # prédictions/s par pod à 10 ms de calcul chacune, soit ~30/s avec 3 replicas.
+            requests: {cpu: 100m, memory: 256Mi}
+            # mémoire : 2,4 fois le pic mesuré. Au-delà, c'est une fuite : le pod est tué (OOMKilled) et
+            # remplacé plutôt que d'épuiser le nœud. CPU : 0,5 laisse passer les rafales ; au-delà de la
+            # limite le pod est ralenti (throttling), pas tué.
+            limits: {cpu: 500m, memory: 512Mi}
+          # readiness = « envoie-moi du trafic » : tant qu'elle échoue, le pod est retiré des endpoints du
+          # Service. Le modèle se charge en ~4 s : premier contrôle à 3 s, puis toutes les 5 s ; 3 échecs
+          # de suite (15 s) suffisent à couper le trafic, un redémarrage n'est pas nécessaire pour ça.
+          readinessProbe:
+            httpGet: {path: /health, port: 8000}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          # liveness = « redémarre-moi si je suis bloqué ». Un redémarrage est coûteux (rechargement du
+          # modèle) : on attend 20 s (5 fois le démarrage mesuré) et 3 échecs à 10 s d'intervalle, soit
+          # 30 s de panne avant de redémarrer.
+          livenessProbe:
+            httpGet: {path: /health, port: 8000}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001 # l'utilisateur de l'image
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
