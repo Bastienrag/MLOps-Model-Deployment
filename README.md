@@ -273,3 +273,45 @@ docker run --rm -p 8000:8000 basutsu/imu-api:latest      # ou un tag précis : b
 Le tag est le commit complet qui a produit l'image ; c'est aussi la version du modèle renvoyée par l'API.
 L'image est construite par la CI sur une architecture **amd64** : sur un Mac Apple Silicon ou une machine
 arm64, Docker l'exécute par émulation, ou on la reconstruit localement avec `docker build` (voir plus haut).
+
+## Déploiement sur Kubernetes local (kind)
+
+Prérequis : Docker, `kind` et `kubectl`. Le script `k8s/deploy.sh` enchaîne les étapes :
+
+```bash
+k8s/deploy.sh up        # crée le cluster kind « imu » (le port 8080 de la machine est relié au Service)
+k8s/deploy.sh deploy    # construit imu-api:<commit>, le charge dans kind, applique les manifestes
+k8s/deploy.sh status    # pods, endpoints du Service, santé
+curl http://localhost:8080/health                  # l'API et la web app (http://localhost:8080/app/)
+k8s/deploy.sh down      # supprime le cluster
+```
+
+L'image est construite localement et chargée dans le cluster (`kind load`), sans passer par Docker Hub :
+l'image publiée par la CI est en amd64, et ce cluster tourne sur la machine du développeur (arm64 ici).
+
+| Manifeste | Rôle |
+|---|---|
+| `k8s/deployment.yaml` | 3 replicas, mise à jour sans perte de capacité, probes, ressources, utilisateur non-root |
+| `k8s/service.yaml` | Service NodePort 30080 vers le port 8000 des pods prêts |
+| `k8s/configmap.yaml` | `MODEL_URI`, `MODEL_NAME`, `OMP_NUM_THREADS` : configuration hors de l'image |
+| `k8s/kind-config.yaml` | publie le NodePort 30080 sur le port 8080 de la machine |
+
+**Valeurs justifiées par des mesures** (conteneur, 40 prédictions puis le plus long trajet du jeu) :
+démarrage jusqu'à `/health` en 3,8 s, mémoire 195 Mo au repos et 213 Mo au pic, 10 ms par prédiction (157 ms
+pour 4 767 points).
+
+- **Readiness** (`/health`, premier contrôle à 3 s, toutes les 5 s, 3 échecs) : un pod non prêt sort des
+  endpoints du Service et ne reçoit plus de trafic. **Liveness** (premier contrôle à 20 s, toutes les 10 s,
+  3 échecs) : plus patiente, car un redémarrage recharge le modèle.
+- **Ressources** : requests 100m CPU / 256 Mi, limits 500m / 512 Mi. La limite mémoire vaut 2,4 fois le pic
+  mesuré : au-delà c'est une fuite et le pod est tué puis remplacé. Dépasser la limite CPU ralentit le pod,
+  sans le tuer. `OMP_NUM_THREADS=1` évite que les threads de PyTorch se disputent ce quota.
+- **Pas de Secret** : le modèle est dans l'image, le pod n'a aucun identifiant S3 ou MLflow à recevoir. Un
+  Secret n'aurait servi à rien, et y mettre les clés du S3 donnerait au pod des droits dont il n'a pas besoin.
+
+**Vérifications faites sur le cluster :**
+
+- Un pod supprimé est remplacé et prêt en 12 s ; 240 requêtes envoyées pendant l'opération ont toutes réussi.
+- Un pod démarré avec une readiness en échec reste `0/1` : il est listé `notReady` dans les endpoints, et
+  60 requêtes via le Service ont réussi.
+- Un pod dont la liveness échoue est redémarré par Kubernetes (`RESTARTS=1`).
