@@ -1,0 +1,85 @@
+name: CI
+
+# À chaque push et pull request : lint, tests, puis gate d'évaluation du modèle.
+# Rien n'est publié ici. Le job de publication (image Docker) viendra plus tard avec
+# `needs: [lint-test, model-gate]` : il ne démarre que si les deux ont réussi.
+#
+# Échec volontaire, pour vérifier que le gate met bien la pipeline au rouge :
+#   gh workflow run ci.yml -f gate_min_balanced_accuracy=0.99
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      gate_min_balanced_accuracy:
+        description: "Seuil du gate à la place de celui de params.yaml (0.99 : échec volontaire)"
+        required: false
+        default: ""
+
+# Une nouvelle exécution annule la précédente sur la même branche.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Droits minimaux : la CI ne fait que lire le dépôt.
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Actions épinglées par empreinte de commit (un tag peut être déplacé), version en commentaire.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.7" # la version d'uv qui a produit uv.lock
+          enable-cache: true
+
+      # --locked : échoue si uv.lock n'est plus synchronisé avec pyproject.toml
+      - name: Dépendances
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run --no-sync ruff check src tests
+
+      - name: Tests
+        run: uv run --no-sync pytest -q
+
+  model-gate:
+    needs: lint-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.7"
+          enable-cache: true
+
+      - name: Dépendances
+        run: uv sync --locked
+
+      # Évalue models/cnn.pt (versionné dans Git) sur le jeu figé ci/golden.npz.
+      # Code de sortie 1 sous les seuils de params.yaml : le job, donc la pipeline, passe au rouge.
+      - name: Gate d'évaluation
+        env:
+          GATE_MIN_BALANCED_ACCURACY: ${{ inputs.gate_min_balanced_accuracy }}
+        run: uv run --no-sync python -m imu.gate
+
+      - name: Rapport du gate
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gate-report
+          path: reports/gate.json
+          if-no-files-found: ignore
+          retention-days: 14
