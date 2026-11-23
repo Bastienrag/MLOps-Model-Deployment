@@ -17,9 +17,14 @@ import yaml  # noqa: E402
 MODEL_NAME = os.getenv("MODEL_NAME", "imu-classifier")
 
 
+def tracking_uri():
+    """MLFLOW_TRACKING_URI, sinon localhost sur MLFLOW_PORT (5000)."""
+    return os.getenv("MLFLOW_TRACKING_URI") or f"http://localhost:{os.getenv('MLFLOW_PORT', '5000')}"
+
+
 def connect():
-    """Pointe vers le serveur MLflow : MLFLOW_TRACKING_URI, sinon localhost sur MLFLOW_PORT (5000)."""
-    uri = os.getenv("MLFLOW_TRACKING_URI") or f"http://localhost:{os.getenv('MLFLOW_PORT', '5000')}"
+    """Pointe vers le serveur MLflow et choisit l'expérience des entraînements."""
+    uri = tracking_uri()
     mlflow.set_tracking_uri(uri)
     mlflow.set_experiment(os.getenv("EXPERIMENT", "imu"))
     return uri
