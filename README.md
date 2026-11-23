@@ -229,3 +229,39 @@ gh run watch
 ```
 
 En local : `uv run python -m imu.gate`, avec `GATE_MIN_BALANCED_ACCURACY=0.99` pour provoquer l'échec.
+
+## Image Docker de l'API
+
+```bash
+docker build --build-arg GIT_SHA=$(git rev-parse HEAD) -t imu-api:dev .
+docker run --rm -p 8000:8000 imu-api:dev          # http://localhost:8000/app/
+```
+
+L'image embarque le modèle (`models/cnn.pt` et `models/meta.json`) : elle n'a besoin ni de MLflow, ni du
+S3, ni d'aucun identifiant. Elle charge le modèle depuis ces fichiers (`MODEL_URI=/app/models`) au lieu du
+registry. La version annoncée par l'API dans chaque réponse est le commit qui a produit l'image
+(`GIT_SHA`).
+
+- **Dépendances** : `uv sync --locked --no-default-groups`, donc les versions exactes de `uv.lock`, sans
+  MLflow, DVC, scikit-learn ni outils de dev (ils sont dans les groupes `mlops` et `dev` de
+  `pyproject.toml`). L'image fait 1,5 Go, dont 690 Mo pour PyTorch (version CPU).
+- **Cache de build** : les dépendances sont installées avant la copie du code, puis le code, puis le
+  modèle. Un changement de code ne réinstalle pas PyTorch.
+- **Sécurité** : le conteneur tourne avec un utilisateur sans privilèges (uid 10001). `.dockerignore` est
+  une liste blanche (`pyproject.toml`, `uv.lock`, `src`, `models/cnn.pt`, `models/meta.json`) : ni `.env`,
+  ni données, ni `.git` n'entrent dans le contexte de build.
+- **Smoke test** (`ci/smoke_test.py`) : démarre l'image, vérifie `/health`, la version du modèle, une
+  prédiction, les probabilités et le refus d'une entrée invalide en 422. Il tourne en local et en CI.
+
+**Publication.** Le job `docker` de la CI construit l'image après le lint, les tests et le gate. Sur un
+push vers `main`, une fois le smoke test réussi, il la pousse sur Docker Hub avec deux tags : le commit
+(`<compte>/imu-api:<sha complet>`) et `latest`. Réglages du dépôt, à faire une fois :
+
+```bash
+gh variable set DOCKERHUB_USERNAME --body <compte-docker-hub>
+gh secret set DOCKERHUB_TOKEN        # token d'accès Docker Hub (Account settings > Personal access tokens)
+```
+
+Sans ces réglages, le job construit et teste l'image sans la publier.
+
+**Image publiée** : `https://hub.docker.com/r/<compte-docker-hub>/imu-api`
