@@ -1,0 +1,38 @@
+[project]
+name = "imu"
+version = "0.1.0"
+description = "Classification de trajets IMU (GBG500) : du prétraitement au déploiement"
+requires-python = ">=3.12"
+dependencies = [
+    "dvc>=3.67.1",
+    "dvc-s3>=3.3.0",
+    "numpy>=2.0",
+    "pandas>=2.3",
+    "pyarrow>=18",
+    "pyyaml>=6.0.3",
+    "scikit-learn>=1.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

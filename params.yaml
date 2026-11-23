@@ -1,0 +1,12 @@
+# Paramètres suivis par DVC (dvc.yaml).
+data:
+  raw_path: data/raw/GBG500.parquet
+  labels_path: data/raw/GBG500_labels.csv
+  processed_dir: data/processed
+  # Ordre fixe : l'indice d'une classe est sa position dans cette liste.
+  classes: [Safe, Safe overall, Bad weather, Tandem, Reckless]
+  window: 256        # points par fenêtre (25,6 s si time_index est en ms)
+  stride: 128        # pas entre deux fenêtres : 50 % de recouvrement
+  train_share: 0.70  # découpage par trajet, stratifié par classe
+  val_share: 0.15    # le reste (0,15) va au test
+  seed: 42
