@@ -109,3 +109,43 @@ leurs scores varient beaucoup d'un tirage à l'autre, la validation croisée est
 Le CNN est nettement au-dessus du hasard. Il ne dépasse que de peu la régression logistique
 (meilleur en F1 macro, moins bon en balanced accuracy) : les classes Tandem et Bad weather sont mal
 reconnues. Les scores sur le jeu de test (`reports/cnn.json`) sont donnés à titre indicatif.
+
+## Suivi MLflow et registry
+
+Avec l'environnement de dev lancé (`docker compose up -d`) :
+
+```bash
+export MLFLOW_PORT=5000                        # ou 5001 si MLFLOW_PORT est réglé dans .env
+uv run python -m imu.track                     # entraîne et trace un run, affiche son RUN_ID
+uv run python -m imu.register RUN_ID staging   # met le modèle dans le registry avec l'alias staging
+uv run python -m imu.score staging             # charge models:/imu-classifier@staging et le score
+uv run python -m imu.register RUN_ID production   # promotion
+```
+
+Chaque run journalise :
+
+- les **paramètres** (`data.*`, `train.*`) et les **métriques** (F1 macro, balanced accuracy, rappel par
+  classe, par trajet et par fenêtre, sur val et test), plus la perte et le F1 de validation par époque ;
+- les **tags** `git_commit`, `git_dirty` (vrai si le dépôt n'est pas propre : le run n'est alors pas
+  reproductible à coup sûr) et les empreintes des données `data_raw_md5`, `data_labels_md5`,
+  `data_processed_md5` ;
+- le **modèle** (signature : fenêtres `(n, 256, 6)` en entrée, probabilités `(n, 5)` en sortie, softmax
+  inclus), et les artefacts `meta.json` (classes, moyenne et écart-type de normalisation), `params.yaml`
+  et `baseline.json`. Les fichiers sont dans le bucket S3 `mlflow`.
+
+Le modèle se charge par nom et alias (`models:/imu-classifier@staging`), jamais par chemin de fichier.
+
+**Reproduire un run depuis un clone** : relever le `git_commit` du run dans l'interface MLflow, puis
+
+```bash
+git clone <dépôt> && cd <dépôt> && git checkout <git_commit>
+uv sync --locked
+uv run dvc pull                                # les données de ce commit
+uv run python -m imu.repro RUN_ID              # réentraîne et compare à 1e-6
+```
+
+`imu.repro` vérifie que le code et les données sont ceux du run, réentraîne avec les paramètres du run
+et compare chaque métrique ; il affiche `REPRODUIT` ou `NON REPRODUCTIBLE`.
+
+Les artefacts passent par le serveur MLflow (`--serve-artifacts`) : le client n'a besoin d'aucune clé S3.
+Il désactive le téléchargement par URL présignée, qui pointerait vers `s3:8333`, une adresse interne à Docker.
