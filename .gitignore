@@ -10,3 +10,4 @@ __pycache__/
 .ruff_cache/
 mlflow.db
 reports/gate.json
+build/

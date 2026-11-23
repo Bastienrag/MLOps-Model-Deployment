@@ -3,26 +3,33 @@ name = "imu"
 version = "0.1.0"
 description = "Classification de trajets IMU (GBG500) : du prétraitement au déploiement"
 requires-python = ">=3.12"
+# Dépendances de service : c'est tout ce qu'installe l'image Docker de l'API.
 dependencies = [
-    "dvc>=3.67.1",
-    "dvc-s3>=3.3.0",
     "fastapi>=0.115",
-    "mlflow>=3.17.2,<3.18",   # même version que le serveur (docker/mlflow/Dockerfile)
     "numpy>=2.0",
     "pandas>=2.3",
-    "pyarrow>=18",
     "pyyaml>=6.0.3",
-    "scikit-learn>=1.6",
     "torch>=2.5",
     "uvicorn>=0.30",
 ]
 
 [dependency-groups]
+# Entraînement, suivi et versionnage des données : hors de l'image.
+mlops = [
+    "dvc>=3.67.1",
+    "dvc-s3>=3.3.0",
+    "mlflow>=3.17.2,<3.18",   # même version que le serveur (docker/mlflow/Dockerfile)
+    "pyarrow>=18",
+    "scikit-learn>=1.6",
+]
 dev = [
     "httpx>=0.27",
     "pytest>=8",
     "ruff>=0.8",
 ]
+
+[tool.uv]
+default-groups = ["dev", "mlops"]  # `uv sync` installe tout ; l'image utilise --no-default-groups
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -30,6 +37,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"imu.web" = ["static/*.html", "static/examples/*.json"]  # la web app est servie par l'API
 
 [tool.ruff]
 line-length = 110

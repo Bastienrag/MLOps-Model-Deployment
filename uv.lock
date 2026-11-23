@@ -1577,16 +1577,12 @@ wheels = [
 name = "imu"
 version = "0.1.0"
 source = { editable = "." }
+default-groups = ["dev", "mlops"]
 dependencies = [
-    { name = "dvc" },
-    { name = "dvc-s3" },
     { name = "fastapi" },
-    { name = "mlflow" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "pyarrow" },
     { name = "pyyaml" },
-    { name = "scikit-learn" },
     { name = "torch", version = "2.15.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.15.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
     { name = "uvicorn" },
@@ -1598,18 +1594,20 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+mlops = [
+    { name = "dvc" },
+    { name = "dvc-s3" },
+    { name = "mlflow" },
+    { name = "pyarrow" },
+    { name = "scikit-learn" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "dvc", specifier = ">=3.67.1" },
-    { name = "dvc-s3", specifier = ">=3.3.0" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "mlflow", specifier = ">=3.17.2,<3.18" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.3" },
-    { name = "pyarrow", specifier = ">=18" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "scikit-learn", specifier = ">=1.6" },
     { name = "torch", specifier = ">=2.5", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
@@ -1619,6 +1617,13 @@ dev = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.8" },
+]
+mlops = [
+    { name = "dvc", specifier = ">=3.67.1" },
+    { name = "dvc-s3", specifier = ">=3.3.0" },
+    { name = "mlflow", specifier = ">=3.17.2,<3.18" },
+    { name = "pyarrow", specifier = ">=18" },
+    { name = "scikit-learn", specifier = ">=1.6" },
 ]
 
 [[package]]
