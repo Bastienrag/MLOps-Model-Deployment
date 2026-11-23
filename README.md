@@ -258,10 +258,18 @@ push vers `main`, une fois le smoke test réussi, il la pousse sur Docker Hub av
 (`<compte>/imu-api:<sha complet>`) et `latest`. Réglages du dépôt, à faire une fois :
 
 ```bash
-gh variable set DOCKERHUB_USERNAME --body <compte-docker-hub>
+gh variable set DOCKERHUB_USERNAME --body basutsu
 gh secret set DOCKERHUB_TOKEN        # token d'accès Docker Hub (Account settings > Personal access tokens)
 ```
 
 Sans ces réglages, le job construit et teste l'image sans la publier.
 
-**Image publiée** : `https://hub.docker.com/r/<compte-docker-hub>/imu-api`
+**Image publiée** : https://hub.docker.com/r/basutsu/imu-api
+
+```bash
+docker run --rm -p 8000:8000 basutsu/imu-api:latest      # ou un tag précis : basutsu/imu-api:<sha du commit>
+```
+
+Le tag est le commit complet qui a produit l'image ; c'est aussi la version du modèle renvoyée par l'API.
+L'image est construite par la CI sur une architecture **amd64** : sur un Mac Apple Silicon ou une machine
+arm64, Docker l'exécute par émulation, ou on la reconstruit localement avec `docker build` (voir plus haut).
