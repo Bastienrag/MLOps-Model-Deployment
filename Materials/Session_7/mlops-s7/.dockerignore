@@ -1,0 +1,16 @@
+.git
+.venv
+.devcontainer
+.github
+**/__pycache__
+**/*.pyc
+data
+logs
+reports
+mlruns
+mlflow.db
+tests
+k8s
+infra
+loadtest
+*.egg-info

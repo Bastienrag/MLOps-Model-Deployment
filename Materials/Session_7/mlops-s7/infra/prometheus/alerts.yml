@@ -1,0 +1,50 @@
+# The four canonical alerts, one per monitoring layer.
+# Visible in Prometheus > Alerts. Each alert points to its runbook.
+# Thresholds assume the traffic of `fraud.simulate` (2 % frauds): calibrate them
+# on a normal run before the session (Grafana shows the baseline of each panel).
+groups:
+  - name: fraud-api
+    rules:
+      # Layer 1: infrastructure
+      - alert: LatencyP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(api_request_duration_seconds_bucket{endpoint="/predict"}[1m]))) > 0.2
+        for: 1m
+        labels: {severity: page, layer: infra}
+        annotations:
+          summary: "/predict P95 above 200 ms"
+          runbook: docs/runbooks.md#latency
+
+      - alert: ErrorRateHigh
+        expr: sum(rate(api_requests_total{status=~"5.."}[1m])) / sum(rate(api_requests_total[1m])) > 0.05
+        for: 1m
+        labels: {severity: page, layer: infra}
+        annotations:
+          summary: "More than 5 % of 5xx responses"
+          runbook: docs/runbooks.md#errors
+
+      # Layer 2: input distribution (median amount in the Kaggle data: ~22 EUR)
+      - alert: InputAmountShift
+        expr: histogram_quantile(0.5, sum by (le) (rate(input_amount_euros_bucket[5m]))) > 35
+        for: 2m
+        labels: {severity: ticket, layer: input}
+        annotations:
+          summary: "Median amount above 35 EUR: likely input drift"
+          runbook: docs/runbooks.md#drift
+
+      # Layer 3: prediction distribution (~2 % flagged with simulated traffic)
+      - alert: PredictedFraudRateHigh
+        expr: sum(rate(prediction_fraud_total[5m])) / sum(rate(api_requests_total{endpoint="/predict",status="200"}[5m])) > 0.06
+        for: 2m
+        labels: {severity: ticket, layer: prediction}
+        annotations:
+          summary: "More than 6 % of transactions flagged as fraud"
+          runbook: docs/runbooks.md#drift
+
+      # Layer 4: business outcome (recall on labels received later; the model targets 80 %)
+      - alert: RecallDrop
+        expr: sum(increase(feedback_total{outcome="tp"}[15m])) / (sum(increase(feedback_total{outcome=~"tp|fn"}[15m])) > 5) < 0.5
+        for: 5m
+        labels: {severity: ticket, layer: outcome}
+        annotations:
+          summary: "Recall below 50 % on frauds confirmed in the last 15 minutes"
+          runbook: docs/runbooks.md#performance

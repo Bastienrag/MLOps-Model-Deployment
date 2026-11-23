@@ -1,0 +1,27 @@
+# Parameters tracked by DVC (dvc.yaml) and logged to MLflow.
+data:
+  raw_path: data/raw/creditcard.csv          # Kaggle file, versioned with `dvc add`
+  train_share: 0.70                          # chronological split, see fraud/data.py
+  golden_share: 0.15
+  train_path: data/processed/train.csv
+  golden_path: data/processed/golden.csv     # frozen set used by the CI evaluation gate
+  current_path: data/processed/current.csv   # "production" traffic replayed by fraud.simulate
+
+train:
+  model: hist_gradient_boosting   # or logistic_regression, or whatever other model (would need setup)
+  validation_share: 0.2           # last part of train, used to pick the decision threshold
+  random_state: 42
+  learning_rate: 0.05
+  max_iter: 300
+  max_depth: 6
+  min_recall: 0.80                # threshold = highest one that keeps recall >= this value
+
+gate:
+  min_auc: 0.85                   # ROC AUC on the golden set (syllabus)
+  min_avg_precision: 0.50         # PR AUC: more telling than ROC AUC with 0.17 % fraud. Calibrate after the first run.
+
+drift:
+  reference_path: data/processed/reference.csv   # healthy production window, see fraud/reference.py
+  psi_alert: 0.1
+  psi_retrain: 0.25               # above this, trigger retraining
+  pvalue: 0.01

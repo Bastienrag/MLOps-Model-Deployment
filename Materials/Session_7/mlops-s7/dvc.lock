@@ -1,0 +1,90 @@
+schema: '2.0'
+stages:
+  split:
+    cmd: python -m fraud.data split
+    deps:
+    - path: data/raw/creditcard.csv
+      hash: md5
+      md5: e90efcb83d69faf99fcab8b0255024de
+      size: 150828752
+    - path: src/fraud/data.py
+      hash: md5
+      md5: 02d328b09e5e7edf88f2d4655d7ab042
+      size: 4342
+    params:
+      params.yaml:
+        data:
+          raw_path: data/raw/creditcard.csv
+          train_share: 0.7
+          golden_share: 0.15
+          train_path: data/processed/train.csv
+          golden_path: data/processed/golden.csv
+          current_path: data/processed/current.csv
+    outs:
+    - path: data/processed/current.csv
+      hash: md5
+      md5: 8ac905ce078f950510122f8fc815a8f9
+      size: 23117440
+    - path: data/processed/golden.csv
+      hash: md5
+      md5: dcaafe67cfa967737e41deda43263073
+      size: 23104246
+    - path: data/processed/train.csv
+      hash: md5
+      md5: 6687079755f6eac1c0ac42b97f603259
+      size: 107597063
+  train:
+    cmd: python -m fraud.train
+    deps:
+    - path: data/processed/train.csv
+      hash: md5
+      md5: 6687079755f6eac1c0ac42b97f603259
+      size: 107597063
+    - path: src/fraud/features.py
+      hash: md5
+      md5: 631ba1faea2a5c67c38b15dcc68b40fa
+      size: 2182
+    - path: src/fraud/train.py
+      hash: md5
+      md5: 9e5c3fc83f1639396d92a40da136f8c5
+      size: 3599
+    params:
+      params.yaml:
+        train:
+          model: hist_gradient_boosting
+          validation_share: 0.2
+          random_state: 42
+          learning_rate: 0.05
+          max_iter: 300
+          max_depth: 6
+          min_recall: 0.8
+    outs:
+    - path: reports/train.json
+      hash: md5
+      md5: c5d7e7b9f0bebd5d8d7251a672902d85
+      size: 348
+  evaluate:
+    cmd: python -m fraud.evaluate
+    deps:
+    - path: data/processed/golden.csv
+      hash: md5
+      md5: dcaafe67cfa967737e41deda43263073
+      size: 23104246
+    - path: reports/train.json
+      hash: md5
+      md5: c5d7e7b9f0bebd5d8d7251a672902d85
+      size: 348
+    - path: src/fraud/evaluate.py
+      hash: md5
+      md5: c9112b80423606779a33abc2555e1708
+      size: 2634
+    params:
+      params.yaml:
+        gate:
+          min_auc: 0.85
+          min_avg_precision: 0.5
+    outs:
+    - path: reports/eval.json
+      hash: md5
+      md5: 7ab58a7ed7667931176f5c49b38a249f
+      size: 301

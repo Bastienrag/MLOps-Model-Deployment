@@ -1,0 +1,41 @@
+# Reproducible pipeline:  dvc repro  then  dvc push
+# DVC only reruns the stages whose dependencies or parameters changed.
+#
+# The raw Kaggle file is NOT produced by a stage: it is downloaded once
+# (`make download`) and versioned with `dvc add data/raw/creditcard.csv`.
+stages:
+  split:
+    cmd: python -m fraud.data split
+    deps:
+      - src/fraud/data.py
+      - data/raw/creditcard.csv
+    params:
+      - data
+    outs:
+      - data/processed/train.csv
+      - data/processed/golden.csv
+      - data/processed/current.csv
+
+  train:
+    cmd: python -m fraud.train
+    deps:
+      - src/fraud/train.py
+      - src/fraud/features.py
+      - data/processed/train.csv
+    params:
+      - train
+    metrics:
+      - reports/train.json:
+          cache: false
+
+  evaluate:
+    cmd: python -m fraud.evaluate
+    deps:
+      - src/fraud/evaluate.py
+      - reports/train.json
+      - data/processed/golden.csv
+    params:
+      - gate
+    metrics:
+      - reports/eval.json:
+          cache: false
