@@ -17,8 +17,8 @@ case "${1:-}" in
   deploy)
     docker build --build-arg GIT_SHA="$(git rev-parse HEAD)" -t "imu-api:$VERSION" .
     kind load docker-image "imu-api:$VERSION" --name "$CLUSTER"
-    kubectl apply -f k8s/configmap.yaml -f k8s/deployment.yaml -f k8s/service.yaml
-    kubectl set image deployment/imu-api "api=imu-api:$VERSION"
+    sed "s|image: imu-api:dev|image: imu-api:$VERSION|" k8s/deployment.yaml \
+      | kubectl apply -f k8s/configmap.yaml -f - -f k8s/service.yaml
     kubectl rollout status deployment/imu-api --timeout=180s
     ;;
   status)

@@ -16,14 +16,21 @@ CLASSES = ["Safe", "Safe overall", "Bad weather", "Tandem", "Reckless"]
 EXAMPLE = Path("src/imu/web/static/examples/reckless.json")
 
 
-def call(url, payload=None):
+def call(url, payload=None, attempts=5):
+    """Appelle l'API. Une coupure de connexion est réessayée (juste après un déploiement, la redirection de
+    port garde un instant des connexions vers les anciens pods) ; une réponse HTTP, même en erreur, non."""
     data = json.dumps(payload).encode() if payload is not None else None
     request = urllib.request.Request(url, data, {"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as r:
-            return r.status, json.load(r), r.headers
-    except urllib.error.HTTPError as err:
-        return err.code, json.load(err), err.headers
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as r:
+                return r.status, json.load(r), r.headers
+        except urllib.error.HTTPError as err:
+            return err.code, json.load(err), err.headers
+        except OSError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(2)
 
 
 def check(ok, message):
