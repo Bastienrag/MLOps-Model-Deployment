@@ -45,3 +45,35 @@ Le stockage S3 est SeaweedFS, comme dans les labs : l'image Docker officielle de
 n'est plus publiée.
 
 Arrêt : `docker compose down` (les données restent), `docker compose down -v` pour tout effacer.
+
+## Données versionnées et prétraitement (DVC)
+
+Les données brutes GBG500 et le résultat du prétraitement sont versionnés avec DVC : Git
+garde les fichiers `.dvc` et `dvc.lock` (des empreintes), les données sont sur le remote S3
+(bucket `dvc` de l'environnement de dev). Un commit désigne donc le code et les données exactes.
+
+```bash
+uv sync                                    # installe les dépendances (uv.lock)
+docker compose up -d                       # le remote DVC est le S3 local
+uv run dvc remote modify --local storage access_key_id <S3_ACCESS_KEY>
+uv run dvc remote modify --local storage secret_access_key <S3_SECRET_KEY>
+uv run dvc pull                            # récupère données brutes et jeux prétraités
+```
+
+Les clés sont celles de `.env`. Pour reconstruire les jeux depuis les données brutes :
+`uv run dvc repro`, puis `uv run dvc push` après un changement.
+
+Le prétraitement (`src/imu/data.py`, paramètres dans `params.yaml`) :
+
+- **Valeurs manquantes** : les lignes dont les 6 capteurs sont NaN (0,7 %, séquences de 19
+  points au plus) sont interpolées linéairement.
+- **`time_index` en double** : un trajet a deux mesures au même instant ; on garde la première.
+- **Découpage** : 70 / 15 / 15 par trajet, stratifié par classe, graine fixée. Chaque jeu
+  contient au moins un trajet Reckless (4 / 1 / 1), donc les métriques de validation et de test
+  sont bruitées sur cette classe.
+- **Fenêtrage** : fenêtres de 256 points, pas de 128, un label par fenêtre (celui du trajet).
+  Les trajets font de 1 807 à 4 767 points : le fenêtrage multiplie les exemples
+  (7 791 / 1 715 / 1 693 fenêtres) sans padding. Le découpage se fait avant le fenêtrage, donc
+  aucun trajet n'a de fenêtres dans deux jeux. La prédiction d'un trajet agrège celles de ses fenêtres.
+- **Normalisation** : moyenne et écart-type par capteur calculés sur le train seul
+  (`data/processed/meta.json`).
