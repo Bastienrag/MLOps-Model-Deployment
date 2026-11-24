@@ -1,5 +1,147 @@
 # MLOps-Model-Deployment
 
+Classification de trajets de vélo à partir de capteurs inertiels (IMU) en 5 catégories : *Safe*,
+*Safe overall*, *Bad weather*, *Tandem* et *Reckless* (jeu GBG500, 500 trajets). Le projet couvre la chaîne
+MLOps complète : données versionnées, entraînement tracé, API et web app, image Docker, intégration et
+déploiement continus sur Kubernetes, test de charge et orchestration.
+
+**Le modèle** est un petit CNN 1D (3 couches, 8-16-16 canaux) sur des fenêtres de 256 mesures ; un trajet est
+classé en moyennant les probabilités de ses fenêtres. En validation croisée par trajet (424 trajets), il
+atteint un F1 macro de 0,37 et une balanced accuracy de 0,43, contre 0,18 et 0,20 pour le hasard : il est
+nettement meilleur que le hasard sans être précis, ce que les 350 trajets d'entraînement (dont 4 *Reckless*)
+ne permettent pas (voir [Modèle et évaluation](#modèle-et-évaluation)).
+
+## Sommaire
+
+1. [Architecture](#architecture)
+2. [Structure du dépôt](#structure-du-dépôt)
+3. [Démarrage rapide](#démarrage-rapide)
+4. [Choix techniques](#choix-techniques)
+5. [Résultats et captures de l'environnement de production](#résultats-et-captures-de-lenvironnement-de-production)
+6. [Images Docker Hub](#images-docker-hub)
+7. Détail de chaque étape : [données](#données-du-projet), [dev local](#environnement-de-développement-local),
+   [DVC](#données-versionnées-et-prétraitement-dvc), [modèle](#modèle-et-évaluation),
+   [MLflow](#suivi-mlflow-et-registry), [API](#api-de-prédiction), [web app](#web-app-de-test),
+   [CI](#intégration-continue-github-actions), [Docker](#image-docker-de-lapi),
+   [Kubernetes](#déploiement-sur-kubernetes-local-kind),
+   [déploiement automatique](#déploiement-automatique-github-actions-et-runner-auto-hébergé),
+   [test de charge](#test-de-charge-locust), [Airflow](#orchestration-airflow)
+
+## Architecture
+
+Deux environnements, comme le demande le sujet : **dev** (Docker Compose) et **production** (cluster
+Kubernetes local kind, sur le même serveur que le runner GitHub).
+
+```
+DEV (docker compose)                                  GITHUB
+┌────────────────────────────────────┐       ┌───────────────────────────────────────┐
+│ Postgres ◄─ MLflow ─► SeaweedFS S3 │       │ push sur main                         │
+│            (tracking,   buckets    │       │   ▼                                   │
+│             registry)   mlflow/dvc │       │ CI : lint, tests, gate du modèle,     │
+└──────────────▲─────────────────────┘       │      image Docker amd64 ──────────────┼──► Docker Hub
+               │                             │   ▼ (CI verte)                        │    basutsu/imu-api
+ données brutes ─► DVC ─► imu.data           │ Déploiement : garde-fou (GitHub),     │    (amd64 + arm64)
+                          ─► imu.track       │   puis runner auto-hébergé ───────────┼──► push arm64
+                          ─► imu.register    └───────────────────┬───────────────────┘
+ (Airflow : DAG imu_pipeline enchaîne ces étapes)               │
+                                                                ▼
+PRODUCTION (cluster kind sur le serveur du runner)
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ build arm64 ─► kind load ─► kubectl apply ─► rollout status ─► smoke test         │
+│ échec à n'importe quelle étape ─► kubectl rollout undo (l'ancienne version reste) │
+│                                                                                   │
+│ Service NodePort 30080 ─► 3 pods imu-api (FastAPI : /v1/predict, /health, /app/)  │
+│ accessible sur http://localhost:8080                                              │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Le modèle de production est dans l'image (`models/cnn.pt` et `models/meta.json`, versionnés dans Git) : la CI
+et le cluster n'ont pas besoin d'atteindre le S3 ni le registry, qui sont locaux. En dev, l'API peut aussi
+charger `models:/imu-classifier@production` depuis le registry MLflow.
+
+## Structure du dépôt
+
+```
+src/imu/          code Python : data, model, train, cv, evaluate, track, register, score, repro, gate,
+                  check_run, inference ; api/ (FastAPI) ; web/ (page de test et exemples)
+tests/            tests unitaires et d'intégration (API, web, modèle, données, manifestes K8s, workflows)
+params.yaml       tous les paramètres (données, entraînement, seuils du gate)
+dvc.yaml          pipeline reproductible : prepare, baseline, train, cv ; data/raw/*.dvc : données brutes
+models/ reports/  modèle servi (15 Ko) et métriques versionnées dans Git
+ci/               jeu figé du gate (golden.npz) et smoke test de l'image
+.github/workflows ci.yml (lint, tests, gate, image) et deploy.yml (déploiement sur kind)
+Dockerfile        image de l'API (uv, utilisateur non root) ; .dockerignore en liste blanche
+k8s/              manifestes (Deployment, Service, ConfigMap, kind) et script deploy.sh
+airflow/dags/     DAG imu_pipeline : prétraitement, entraînement, évaluation, enregistrement
+loadtest/         test de charge Locust, découpage de la latence, résultats CSV
+docker/ infra/    image MLflow et création des buckets S3 ; docker-compose.yml : environnement de dev
+docs/captures/    sorties réelles de l'environnement de production
+docs/soutenance.md  plan de la présentation de 10 minutes
+Materials/        supports du cours (hors projet)
+```
+
+## Démarrage rapide
+
+```bash
+cp .env.example .env && docker compose up -d     # dev : MLflow + S3 (voir « Environnement de développement local »)
+uv sync                                          # dépendances figées par uv.lock
+uv run pytest                                    # 93 tests, sans serveur MLflow
+uv run uvicorn imu.api.main:app --port 8000      # API : http://localhost:8000/docs, web app : /app/
+./k8s/deploy.sh up                               # production : cluster kind + déploiement (http://localhost:8080)
+```
+
+L'image seule se lance sans rien d'autre : `docker run -p 8000:8000 basutsu/imu-api:latest`.
+
+## Choix techniques
+
+| Sujet | Choix | Raison |
+|---|---|---|
+| Modèle | CNN 1D minuscule sur fenêtres de 256 mesures | 350 trajets d'entraînement : un réseau plus gros était au hasard ; les fenêtres multiplient les exemples |
+| Évaluation | F1 macro et balanced accuracy, validation croisée par trajet | classes déséquilibrées (« Safe » partout = 0,83 d'accuracy) ; val et test n'ont qu'un trajet *Reckless* |
+| Données | DVC avec remote S3 (SeaweedFS) | un commit désigne code et données ; MinIO n'est plus téléchargeable |
+| Suivi | MLflow, registry par alias (`staging`, `production`) | chargement par nom et alias, jamais par chemin ; un run = une version |
+| API | FastAPI, contrat Pydantic strict, `/health`, version du modèle dans chaque réponse | entrées invalides refusées en 422 avec le détail des champs |
+| Image | `uv sync --locked`, utilisateur non root, modèle dans l'image | build reproductible, aucun secret dans l'image, démarrage en 4 s |
+| CI | actions épinglées par SHA, permissions minimales, gate de modèle sur un jeu figé | échec volontaire testé : `gh workflow run ci.yml -f gate_min_balanced_accuracy=0.99` |
+| Déploiement | runner auto-hébergé sur le serveur, rollback automatique | le cluster kind est local, GitHub ne l'atteint pas ; échec simulé : `gh workflow run deploy.yml -f simulate_failure=true` |
+| Image multi-architecture | la CI pousse amd64, le runner pousse arm64 et réunit les deux | le serveur est arm64, les runners GitHub amd64 |
+| Ressources K8s | requests/limits ajustées d'après le test de charge | saturation à ~30 req/s par pod : c'est la limite CPU de 500m |
+| Orchestration | DAG Airflow qui appelle le code du dépôt | le DAG ne fait que l'ordre et les reprises, sans logique dupliquée |
+
+**Limites assumées** : pas de Secret Kubernetes (le modèle est dans l'image, le pod n'a aucun identifiant à
+recevoir) ; la précision du modèle est modeste ; les mesures de charge viennent d'un serveur à 2 CPU
+partagés ; le runner auto-hébergé sur un dépôt public est un risque, réduit par le garde-fou du workflow
+(voir « Déploiement automatique »).
+
+## Résultats et captures de l'environnement de production
+
+Sorties réelles du cluster, de l'API en production, de GitHub Actions, du registry et de Docker Hub, dans
+[`docs/captures/`](docs/captures) :
+
+| Capture | Contenu |
+|---|---|
+| [`kubernetes.txt`](docs/captures/kubernetes.txt) | nœud, déploiement à 3 replicas, pods, service NodePort, historique des rollouts |
+| [`api-production.txt`](docs/captures/api-production.txt) | `/health`, smoke test et prédiction sur l'API du cluster (http://localhost:8080) |
+| [`github-actions.txt`](docs/captures/github-actions.txt) | runs de CI et de déploiement (dont l'échec simulé en rouge), runner en ligne |
+| [`mlflow-registry.txt`](docs/captures/mlflow-registry.txt) | versions du modèle, alias `staging` et `production`, métriques, commit Git |
+| [`docker-hub.txt`](docs/captures/docker-hub.txt) | manifeste multi-architecture de `basutsu/imu-api:latest` |
+
+| Résultat | Valeur |
+|---|---|
+| CNN, validation croisée 5 plis par trajet | F1 macro 0,37 · balanced accuracy 0,43 (hasard 0,18 · 0,20) |
+| Régression logistique (baseline) | F1 macro 0,32 · balanced accuracy 0,50 |
+| Tests automatiques | 93, tous verts en CI |
+| Latence d'une prédiction (API sur le cluster) | 13 ms en médiane, P95 sous 100 ms jusqu'à ~19 req/s par pod |
+| Saturation | ~30 req/s avec 1 replica, ~83 req/s avec 3 |
+| Coût | ~0,0002 € pour 1 000 prédictions (hypothèse : 0,04 € par vCPU-heure) |
+| Déploiement | automatique après une CI verte, en 2 à 6 minutes ; retour arrière automatique en cas d'échec |
+
+## Images Docker Hub
+
+- API : https://hub.docker.com/r/basutsu/imu-api — tags `latest`, `<sha complet du commit>` (manifeste
+  amd64 + arm64), `<sha>-amd64` et `<sha>-arm64`.
+- L'environnement de dev construit son image MLflow localement (`docker/mlflow/Dockerfile`) ; elle n'est pas publiée.
+
 ## Données du projet
 
 Les données ne sont pas versionnées dans ce dépôt : elles sont trop lourdes pour GitHub
