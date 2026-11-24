@@ -304,8 +304,8 @@ pour 4 767 points).
 - **Readiness** (`/health`, premier contrôle à 3 s, toutes les 5 s, 3 échecs) : un pod non prêt sort des
   endpoints du Service et ne reçoit plus de trafic. **Liveness** (premier contrôle à 20 s, toutes les 10 s,
   3 échecs) : plus patiente, car un redémarrage recharge le modèle.
-- **Ressources** : requests 100m CPU / 256 Mi, limits 500m / 512 Mi. La limite mémoire vaut 2,4 fois le pic
-  mesuré : au-delà c'est une fuite et le pod est tué puis remplacé. Dépasser la limite CPU ralentit le pod,
+- **Ressources** : requests 250m CPU / 384 Mi, limits 500m / 512 Mi (ajustées d'après le test de charge, voir
+  plus bas). La limite mémoire vaut 1,3 fois le pic mesuré sous charge : au-delà c'est une fuite et le pod est tué puis remplacé. Dépasser la limite CPU ralentit le pod,
   sans le tuer. `OMP_NUM_THREADS=1` évite que les threads de PyTorch se disputent ce quota.
 - **Pas de Secret** : le modèle est dans l'image, le pod n'a aucun identifiant S3 ou MLflow à recevoir. Un
   Secret n'aurait servi à rien, et y mettre les clés du S3 donnerait au pod des droits dont il n'a pas besoin.
@@ -357,3 +357,70 @@ collaborateur ; la CI et les pull requests tournent sur les runners GitHub ; les
 le jeton Docker Hub n'est lisible que par l'étape de publication, dans une configuration Docker jetable.
 `tests/test_workflows.py` vérifie ces règles. À régler côté GitHub : Settings > Actions > General >
 « Fork pull request workflows » : exiger l'approbation pour tous les contributeurs extérieurs.
+
+## Test de charge (Locust)
+
+`loadtest/locustfile.py` rejoue les 5 trajets réels (un par classe) contre l'API du cluster kind ;
+`loadtest/run.sh` applique le même profil à 1 puis 3 replicas (paliers de 45 s à 5, 10, 20, 40 et 80
+utilisateurs, plus 120 et 160 à 3 replicas) et écrit les résultats dans `loadtest/results/`. Un utilisateur
+attend 0,5 à 1,5 s entre deux requêtes. `loadtest/budget.py` mesure chaque étape du code de l'API.
+
+```bash
+uv run --group load locust -f loadtest/locustfile.py --headless -u 20 -r 5 -t 45s --host http://localhost:8080
+uv run python loadtest/budget.py
+```
+
+**Résultats** (le serveur n'a que 2 CPU, partagés entre Locust, kind et les pods : les valeurs absolues sont
+des ordres de grandeur, la comparaison entre configurations est valable) :
+
+| Utilisateurs | 1 replica : req/s | P95 | 3 replicas : req/s | P95 |
+|---:|---:|---:|---:|---:|
+| 5 | 5,0 | 20 ms | 5,0 | 23 ms |
+| 10 | 9,8 | 30 ms | 10,0 | 24 ms |
+| 20 | 18,9 | 88 ms | 19,8 | 32 ms |
+| 40 | 29,5 | 760 ms | 36,6 | 47 ms |
+| 80 | 29,6 | 2 100 ms | 61,9 | 420 ms |
+| 120 | – | – | 81,5 | 770 ms |
+| 160 | – | – | 83,6 | 1 200 ms |
+
+Aucune erreur sur les 0 à 160 utilisateurs. **Saturation** : le débit plafonne à ~30 req/s avec 1 replica
+(il stagne de 40 à 80 utilisateurs pendant que la latence explose : les requêtes font la queue) et à
+~83 req/s avec 3 replicas, soit 2,8 fois plus. Le plafond correspond à la limite CPU des pods (500m) :
+30 req/s sur 0,5 CPU donne ~17 ms de CPU par requête. Le compteur de throttling du conteneur le confirme.
+
+**Cible de P95 : 100 ms.** Pour une page web qui affiche la classe d'un trajet, la réponse paraît
+instantanée sous 100 ms. Elle est tenue jusqu'à ~19 req/s avec 1 replica (P95 88 ms) et ~37 req/s avec
+3 replicas (P95 47 ms). Il faut donc ajouter des replicas dès ~20 req/s par pod.
+
+**Budget de latence** (trajet de 600 mesures, 3 fenêtres, médiane de 50 appels dans le code de l'API ; la
+requête complète prend 13 ms en médiane à faible charge) :
+
+| Poste | Temps | Part |
+|---|---:|---:|
+| Réseau et serveur HTTP (aller-retour `/health` : 2,6 ms, plus lecture du corps et réponse) | ~8 ms | 60 % |
+| Lecture JSON | 0,8 ms | 6 % |
+| Validation Pydantic | 1,6 ms | 12 % |
+| Prétraitement (interpolation, fenêtres, normalisation) | 1,9 ms | 15 % |
+| Inférence du CNN | 0,95 ms | 7 % |
+| Post-traitement (moyenne des fenêtres) | 0,01 ms | 0 % |
+
+Le poste dominant est le transport HTTP, pas le modèle : le CNN est minuscule. Ce qui coûte ensuite est le
+traitement de l'entrée (validation et prétraitement, 27 % à eux deux), qui croît avec la longueur du
+trajet (157 ms pour 4 767 points). Un trajet plus long ou un modèle plus gros déplacerait le budget vers
+l'inférence.
+
+**Coût pour 1 000 prédictions**, au débit de saturation, en comptant 0,04 € par vCPU-heure (ordre de
+grandeur d'un cloud public, hypothèse à remplacer par le tarif réel) et la limite CPU des pods :
+
+| Configuration | CPU facturé | Débit | Prédictions par heure | Coût / 1 000 |
+|---|---:|---:|---:|---:|
+| 1 replica | 0,5 vCPU : 0,020 €/h | 30/s | 108 000 | 0,00019 € |
+| 3 replicas | 1,5 vCPU : 0,060 €/h | 83/s | 299 000 | 0,00020 € |
+
+Le coût unitaire est le même (le débit croît avec le CPU), mais 3 replicas tolèrent la panne d'un pod et
+la fin d'un déploiement sans coupure. En pratique le coût dépend surtout du taux d'utilisation : à 20 req/s
+sur 3 replicas, le coût par prédiction est 4 fois supérieur à celui de la saturation.
+
+**Ressources Kubernetes** : la limite CPU de 500m est confirmée (c'est elle qui fixe le plafond, et elle
+protège le nœud). Les requests passent de 100m / 256 Mi à 250m / 384 Mi : 100m ne réservait qu'un
+sixième du débit d'un pod, et la mémoire monte à 393 Mo sous charge. La limite mémoire de 512 Mi reste.
