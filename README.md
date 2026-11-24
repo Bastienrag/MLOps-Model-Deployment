@@ -424,3 +424,50 @@ sur 3 replicas, le coût par prédiction est 4 fois supérieur à celui de la sa
 **Ressources Kubernetes** : la limite CPU de 500m est confirmée (c'est elle qui fixe le plafond, et elle
 protège le nœud). Les requests passent de 100m / 256 Mi à 250m / 384 Mi : 100m ne réservait qu'un
 sixième du débit d'un pod, et la mémoire monte à 393 Mo sous charge. La limite mémoire de 512 Mi reste.
+
+## Orchestration (Airflow)
+
+Le DAG `imu_pipeline` (`airflow/dags/imu_pipeline.py`) enchaîne les étapes de bout en bout, chacune étant un
+appel au code du dépôt dans son environnement `uv` : le DAG ne fait que l'ordre, les reprises et les délais.
+
+```
+prepare -> train -> evaluate -> register
+```
+
+| Tâche | Commande | Rôle |
+|---|---|---|
+| `prepare` | `python -m imu.data` | données brutes -> `data/processed` |
+| `train` | `python -m imu.track` | entraîne le CNN, journalise le run dans MLflow, transmet son `run_id` |
+| `evaluate` | `python -m imu.check_run RUN_ID` | relit les métriques de test du run ; échoue sous les seuils `gate` de `params.yaml` |
+| `register` | `python -m imu.register RUN_ID staging` | enregistre le modèle dans le registry, alias `staging` |
+
+Si `evaluate` échoue, `register` ne s'exécute pas : un modèle sous les seuils n'entre jamais dans le registry.
+Chaque tâche a un délai maximal et une reprise (1 minute plus tard). `max_active_runs=1` : deux
+entraînements en parallèle se disputeraient les 2 CPU du serveur. Le DAG n'a pas de planning : il se lance
+à la demande, et se rejoue autant de fois qu'on veut, sans rien nettoyer avant.
+
+**Installer et lancer** (Airflow a ses propres dépendances : environnement séparé, hors du dépôt ; la pile
+MLflow doit tourner, `docker compose up -d`) :
+
+```bash
+uv venv --python 3.12 ~/airflow-venv
+uv pip install --python ~/airflow-venv/bin/python "apache-airflow==3.4.0" \
+  --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.4.0/constraints-3.12.txt"
+
+export AIRFLOW_HOME=~/airflow AIRFLOW__CORE__LOAD_EXAMPLES=False
+export AIRFLOW__CORE__DAGS_FOLDER=$PWD/airflow/dags PROJECT_DIR=$PWD MLFLOW_PORT=5001   # port de .env
+
+~/airflow-venv/bin/airflow dags test imu_pipeline      # une exécution complète, sans scheduler
+~/airflow-venv/bin/airflow standalone                  # ou l'interface web (http://localhost:8080) et le scheduler
+~/airflow-venv/bin/airflow dags trigger imu_pipeline   # avec standalone en marche : lance une exécution
+```
+
+**Résultat vérifié** : deux exécutions complètes de suite ont réussi (environ 1 min 30 chacune). Elles ont
+produit chacune un run MLflow et une version du registry (v5 puis v6, alias `staging` déplacé sur la
+dernière), avec les mêmes 15 métriques à l'identique (écart maximal 0,0 : graine, threads et données
+fixés). Les fichiers de `data/processed` n'ont pas changé non plus, Git et DVC ne voient aucune modification.
+Relancer le DAG ajoute donc une version au registry, mais jamais un résultat différent. Les seuils stricts
+ont été vérifiés : avec 0,9 le contrôle `evaluate` refuse le modèle.
+
+L'alias `production` n'est jamais touché par le DAG : le passage en production reste une décision
+humaine (`python -m imu.register RUN_ID production`).
