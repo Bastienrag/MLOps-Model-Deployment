@@ -30,10 +30,12 @@ spec:
           #   démarrage jusqu'à /health = 200 : 3,8 s ; mémoire 195 Mo au repos, pic 213 Mo ;
           #   prédiction : 10 ms en médiane, 157 ms pour le plus long trajet.
           resources:
-            # mémoire : 256 Mi couvre le fonctionnement normal (195 Mo). CPU : 100m suffit à ~10
-            # prédictions/s par pod à 10 ms de calcul chacune, soit ~30/s avec 3 replicas.
-            requests: {cpu: 100m, memory: 256Mi}
-            # mémoire : 2,4 fois le pic mesuré. Au-delà, c'est une fuite : le pod est tué (OOMKilled) et
+            # Test de charge (loadtest/) : un pod ne dépasse pas ~30 prédictions/s (limite CPU atteinte, soit
+            # ~17 ms de CPU par requête) et garde un P95 sous 100 ms jusqu'à ~20/s. CPU : 250m réservés
+            # couvrent ~15/s par pod, le régime normal. Mémoire : jusqu'à 393 Mo mesurés sous charge
+            # (cache de fichiers compris), 384 Mi réservés.
+            requests: {cpu: 250m, memory: 384Mi}
+            # mémoire : 1,3 fois le pic mesuré sous charge. Au-delà, c'est une fuite : le pod est tué (OOMKilled) et
             # remplacé plutôt que d'épuiser le nœud. CPU : 0,5 laisse passer les rafales ; au-delà de la
             # limite le pod est ralenti (throttling), pas tué.
             limits: {cpu: 500m, memory: 512Mi}
