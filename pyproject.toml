@@ -27,6 +27,9 @@ dev = [
     "pytest>=8",
     "ruff>=0.8",
 ]
+load = [
+    "locust>=2.47",
+]
 
 [tool.uv]
 default-groups = ["dev", "mlops"]  # `uv sync` installe tout ; l'image utilise --no-default-groups
