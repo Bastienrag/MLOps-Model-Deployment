@@ -1,0 +1,28 @@
+$ curl -s localhost:8080/health
+{"status":"ok","model_loaded":true,"model_name":"imu-classifier","model_version":"82932e4f4fe978baf6fa9ef63b369d58a3048d19"}
+
+$ python ci/smoke_test.py http://localhost:8080 <sha>
+OK    /health : modèle chargé ({'status': 'ok', 'model_loaded': True, 'model_name': 'imu-classifier', 'model_version': '82932e4f4fe978baf6fa9ef63b369d58a3048d19'})
+OK    version du modèle = 82932e4f4fe978baf6fa9ef63b369d58a3048d19
+OK    /v1/predict répond 200 (reçu 200)
+OK    catégorie valide : Reckless
+OK    les probabilités somment à 1
+OK    version du modèle dans la réponse
+OK    entrée invalide refusée en 422 (reçu 422)
+Smoke test réussi
+
+$ POST /v1/predict (trajet Reckless, 600 mesures) -> HTTP 200 | X-Model-Version 82932e4
+{
+  "ride_id": "exemple-reckless",
+  "predicted_class": "Reckless",
+  "probability": 0.4220702350139618,
+  "probabilities": {
+    "Safe": 0.1269795447587967,
+    "Safe overall": 0.3402789831161499,
+    "Bad weather": 0.058613765984773636,
+    "Tandem": 0.05205744504928589,
+    "Reckless": 0.4220702350139618
+  },
+  "n_windows": 3,
+  "model_version": "82932e4f4fe978baf6fa9ef63b369d58a3048d19"
+}

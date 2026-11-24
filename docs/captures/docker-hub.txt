@@ -1,0 +1,16 @@
+$ docker buildx imagetools inspect basutsu/imu-api:latest
+Name:      docker.io/basutsu/imu-api:latest
+MediaType: application/vnd.oci.image.index.v1+json
+Digest:    sha256:be7de79bc4afe75a6c12f8b98ac4390ae533ebc232c0c57a535feb1d9dcf6e94
+  Name:        docker.io/basutsu/imu-api:latest@sha256:e410b20e5b6453f76aa6f887cb762598cb8facf9419038b0d9452707b518a424
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/amd64
+  Name:        docker.io/basutsu/imu-api:latest@sha256:f8efff130459c4955b8d85ef5284f0aea34a5db2bd26a2c98f1244fc0012ca12
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Name:        docker.io/basutsu/imu-api:latest@sha256:2e2cb17c34e7bfe1b95a9076216fde964dce4849e6c9465ef0b5eedac3f4ee7f
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/arm64
+  Name:        docker.io/basutsu/imu-api:latest@sha256:42eb3408a5222457ebde0dfcd1ec3d96c540a820be2489a3b876dc18bfafd40d
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown

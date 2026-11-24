@@ -1,0 +1,4 @@
+$ registre MLflow : imu-classifier   (alias : production -> v3, staging -> v6)
+v6  run 0d29379c  alias ['staging']  test F1 macro 0.432  balanced acc 0.552  git 82932e4
+v5  run bca56e36  alias -  test F1 macro 0.432  balanced acc 0.552  git 82932e4
+v3  run 1c9f15c9  alias ['production']  test F1 macro 0.432  balanced acc 0.552  git e47272f

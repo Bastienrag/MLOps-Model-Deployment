@@ -1,0 +1,12 @@
+$ gh run list --limit 8
+completed	success	Déploiement	Déploiement	main	workflow_run	45377254032	1m52s	2026-11-24T10:42:00Z
+completed	success	Documentation de l'orchestration avec Airflow.	CI	main	push	45376857680	2m27s	2026-11-24T10:39:29Z
+completed	success	Déploiement	Déploiement	main	workflow_run	45375893563	5m41s	2026-11-24T10:33:23Z
+completed	success	Documentation du test de charge, du budget de latence et du coût.	CI	main	push	45375480232	2m31s	2026-11-24T10:30:47Z
+completed	failure	Déploiement	Déploiement	main	workflow_dispatch	45203542851	1m23s	2026-11-23T15:17:21Z
+completed	success	Déploiement	Déploiement	main	workflow_run	45203088511	2m2s	2026-11-23T15:15:01Z
+completed	success	Documentation du déploiement automatique et du runner auto-hébergé.	CI	main	push	45202519081	2m55s	2026-11-23T15:12:00Z
+completed	success	Documentation du déploiement sur Kubernetes local.	CI	main	push	45174927108	2m34s	2026-11-23T12:30:17Z
+
+$ gh api repos/Bastienrag/MLOps-Model-Deployment/actions/runners
+imu-server  online  self-hosted,Linux,ARM64,imu-kind

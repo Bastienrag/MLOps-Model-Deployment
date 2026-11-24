@@ -1,0 +1,26 @@
+$ kubectl get nodes,deploy,pods,svc -o wide
+NAME                     STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+node/imu-control-plane   Ready    control-plane   23h   v1.37.0   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.0-1016-oracle (arm64)   containerd://2.3.4
+
+NAME                      READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES            SELECTOR
+deployment.apps/imu-api   3/3     3            3           22h   api          imu-api:82932e4   app=imu-api
+
+NAME                           READY   STATUS    RESTARTS   AGE   IP            NODE                NOMINATED NODE   READINESS GATES
+pod/imu-api-5ccfbd7c5d-cndpw   1/1     Running   0          92s   10.244.0.30   imu-control-plane   <none>           <none>
+pod/imu-api-5ccfbd7c5d-gx5pz   1/1     Running   0          68s   10.244.0.32   imu-control-plane   <none>           <none>
+pod/imu-api-5ccfbd7c5d-jj4jv   1/1     Running   0          78s   10.244.0.31   imu-control-plane   <none>           <none>
+
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE   SELECTOR
+service/imu-api      NodePort    10.96.75.146   <none>        80:30080/TCP   22h   app=imu-api
+service/kubernetes   ClusterIP   10.96.0.1      <none>        443/TCP        23h   <none>
+
+$ kubectl rollout history deployment/imu-api
+deployment.apps/imu-api 
+REVISION  CHANGE-CAUSE
+1         <none>
+6         <none>
+7         <none>
+9         <none>
+10        <none>
+11        <none>
+
