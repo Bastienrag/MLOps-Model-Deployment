@@ -35,7 +35,7 @@ ENV MODEL_URI=/app/models \
     PATH="/app/.venv/bin:$PATH"
 
 # Utilisateur sans privilèges.
-RUN useradd --create-home --uid 10001 appuser
+RUN useradd --create-home --uid 10001 appuser && mkdir /app/logs && chown appuser /app/logs
 USER appuser
 
 EXPOSE 8000
