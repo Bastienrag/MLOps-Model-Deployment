@@ -25,7 +25,8 @@ ne permettent pas (voir [Modèle et évaluation](#modèle-et-évaluation)).
    [CI](#intégration-continue-github-actions), [Docker](#image-docker-de-lapi),
    [Kubernetes](#déploiement-sur-kubernetes-local-kind),
    [déploiement automatique](#déploiement-automatique-github-actions-et-runner-auto-hébergé),
-   [test de charge](#test-de-charge-locust), [Airflow](#orchestration-airflow)
+   [test de charge](#test-de-charge-locust), [Airflow](#orchestration-airflow),
+   [monitoring](#monitoring-prometheus-et-grafana)
 
 ## Architecture
 
@@ -72,6 +73,7 @@ ci/               jeu figé du gate (golden.npz) et smoke test de l'image
 .github/workflows ci.yml (lint, tests, gate, image) et deploy.yml (déploiement sur kind)
 Dockerfile        image de l'API (uv, utilisateur non root) ; .dockerignore en liste blanche
 k8s/              manifestes (Deployment, Service, ConfigMap, kind) et script deploy.sh
+monitoring/       Prometheus, Grafana (dashboard provisionné) et simulateur de trafic
 airflow/dags/     DAG imu_pipeline : prétraitement, entraînement, évaluation, enregistrement
 loadtest/         test de charge Locust, découpage de la latence, résultats CSV
 docker/ infra/    image MLflow et création des buckets S3 ; docker-compose.yml : environnement de dev
@@ -613,3 +615,56 @@ ont été vérifiés : avec 0,9 le contrôle `evaluate` refuse le modèle.
 
 L'alias `production` n'est jamais touché par le DAG : le passage en production reste une décision
 humaine (`python -m imu.register RUN_ID production`).
+
+## Monitoring (Prometheus et Grafana)
+
+L'API expose `GET /metrics` (format Prometheus) et écrit un log JSON par événement. Le Compose de dev
+démarre l'API (l'image du dépôt), Prometheus et Grafana :
+
+```bash
+docker compose up -d --build api prometheus grafana     # API_PORT=8001 dans .env si le port 8000 est pris
+uv run python monitoring/simulate_traffic.py --url http://localhost:8000 --rides 300 --rate 5 --seed 0
+```
+
+| Service | URL |
+|---|---|
+| API | http://localhost:8000 (`/docs`, `/metrics`) |
+| Prometheus (cible `imu-api` UP dans *Status > Targets*) | http://localhost:9090 |
+| Grafana, dashboard « API IMU : 4 couches de monitoring » (utilisateur `admin`, mot de passe `GRAFANA_PASSWORD`, `admin` par défaut) | http://localhost:3000 |
+
+**Les quatre couches** (`src/imu/api/monitoring.py`, une rangée du dashboard chacune) :
+
+| Couche | Question | Métriques |
+|---|---|---|
+| 1. Infrastructure | le service est-il up et rapide ? | `imu_http_requests_total`, `imu_http_request_duration_seconds` : débit, P95, part de 5xx et de 4xx, `up` |
+| 2. Entrées | les trajets reçus ressemblent-ils à ceux d'entraînement ? | `imu_input_accel_std` (agitation), `imu_input_gyro_rms` (rotation), `imu_input_samples` (longueur), `imu_input_missing_fraction` |
+| 3. Prédictions | le modèle répond-il de façon plausible ? | `imu_predictions_total` par classe, `imu_prediction_confidence` |
+| 4. Résultat métier | le modèle a-t-il raison ? | `imu_feedback_total`, `imu_feedback_correct_total` : exactitude, balanced accuracy et rappel par classe |
+
+La couche 4 est alimentée par **`POST /v1/feedback`** (`predicted_class`, `true_class`, `ride_id` facultatif),
+appelé quand la vraie catégorie d'un trajet devient connue. La classe prédite est rappelée dans la requête :
+l'API ne garde aucun état, donc le comptage reste exact avec plusieurs replicas.
+
+**Cardinalité bornée** : le label `route` est le modèle de route (`/v1/predict`), jamais l'URL reçue, donc
+un client qui invente des chemins ne crée pas de séries (ils tombent dans `inconnue`) ; les autres labels
+sont les 5 classes et les codes de statut. Aucun identifiant n'est un label. Les tests le vérifient.
+
+**Log JSON** : une ligne par prédiction (et par retour de vérité terrain) dans `PREDICTION_LOG`
+(`/app/logs/predictions.jsonl` dans le Compose, volume `api-logs`), sur la sortie standard sinon. Chaque ligne
+porte l'heure, la version du modèle, les statistiques des entrées, la classe, la confiance, les
+probabilités et la latence. L'identifiant du trajet n'y figure **jamais en clair** : seulement une
+empreinte SHA-256 salée (`LOG_HASH_SALT`), qui relie une prédiction à son retour sans révéler l'identifiant.
+
+```bash
+docker compose exec api tail -n 2 /app/logs/predictions.jsonl
+```
+
+**Simulateur** (`monitoring/simulate_traffic.py`) : rejoue des variantes des 5 trajets réels (recadrage,
+mise à l'échelle, bruit, lignes manquantes) dans les proportions de GBG500 (83 % de Safe), et envoie la
+vérité terrain de 70 % d'entre eux. La graine fixe tout : deux lancements avec `--seed 0` donnent les mêmes
+trajets et les mêmes décomptes, ce qui sert de baseline aux alertes et à la détection de dérive.
+
+**Mesuré** avec le simulateur (950 trajets : deux fois 400 avec la graine 0, puis 150 avec la graine 1) : 0 erreur, P50 de `/v1/predict` 9 ms et P95 23 ms ;
+sur les 642 retours de vérité terrain, 73 % d'exactitude et 76 % de balanced accuracy, calculée sur les seules
+classes qui ont reçu des retours (les classes rares en ont très peu). Ces chiffres de la couche 4 ne
+jugent pas le modèle : ils montrent que la chaîne de mesure fonctionne de bout en bout.
