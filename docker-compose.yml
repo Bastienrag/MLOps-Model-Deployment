@@ -3,6 +3,7 @@
 #
 # URLs : MLflow http://localhost:${MLFLOW_PORT:-5000} · S3 API http://localhost:8333
 #        Navigateur de fichiers S3 http://localhost:8888/buckets/
+#        API http://localhost:${API_PORT:-8000} · Prometheus http://localhost:9090 · Grafana http://localhost:3000
 
 name: mlops-imu
 
@@ -80,6 +81,48 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # API de prédiction : l'image du dépôt (modèle embarqué), avec ses métriques et son log JSON.
+  api:
+    build: .
+    image: mlops-imu-api:dev
+    environment:
+      PREDICTION_LOG: /app/logs/predictions.jsonl
+      LOG_HASH_SALT: ${LOG_HASH_SALT:-imu-dev}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - api-logs:/app/logs
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   s3-data:
   pg-data:
+  api-logs:
+  prometheus-data:
+  grafana-data:
