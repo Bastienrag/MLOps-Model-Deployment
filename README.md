@@ -1,6 +1,6 @@
 # MLOps-Model-Deployment
 
-Classification de trajets de vélo à partir de capteurs inertiels (IMU) en 5 catégories : *Safe*,
+Classification de trajets (*rides*) à partir de capteurs inertiels (IMU : accéléromètre et gyroscope) en 5 catégories : *Safe*,
 *Safe overall*, *Bad weather*, *Tandem* et *Reckless* (jeu GBG500, 500 trajets). Le projet couvre la chaîne
 MLOps complète : données versionnées, entraînement tracé, API et web app, image Docker, intégration et
 déploiement continus sur Kubernetes, test de charge et orchestration.
@@ -10,6 +10,10 @@ classé en moyennant les probabilités de ses fenêtres. En validation croisée 
 atteint un F1 macro de 0,37 et une balanced accuracy de 0,43, contre 0,18 et 0,20 pour le hasard : il est
 nettement meilleur que le hasard sans être précis, ce que les 350 trajets d'entraînement (dont 4 *Reckless*)
 ne permettent pas (voir [Modèle et évaluation](#modèle-et-évaluation)).
+
+## Équipe
+
+Bastien Ragueneau, Ugo Zanchi, Thomas Alaphilippe et Féliz Luberne.
 
 ## Sommaire
 
@@ -127,6 +131,30 @@ Sorties réelles du cluster, de l'API en production, de GitHub Actions, du regis
 | [`github-actions.txt`](docs/captures/github-actions.txt) | runs de CI et de déploiement (dont l'échec simulé en rouge), runner en ligne |
 | [`mlflow-registry.txt`](docs/captures/mlflow-registry.txt) | versions du modèle, alias `staging` et `production`, métriques, commit Git |
 | [`docker-hub.txt`](docs/captures/docker-hub.txt) | manifeste multi-architecture de `basutsu/imu-api:latest` |
+
+**Web app servie par l'API du cluster Kubernetes** (http://localhost:8080/app/), sur un trajet Reckless réel :
+
+![Web app de test](docs/captures/web-app.png)
+
+**Swagger** de l'API (`/docs`) :
+
+![Swagger de l'API](docs/captures/swagger.png)
+
+**Registry MLflow** : le modèle `imu-classifier`, `staging` sur la version 6 et `production` sur la version 3 :
+
+![Registry MLflow](docs/captures/mlflow-registry.png)
+
+**GitHub Actions** : CI et déploiement verts, avec un échec volontaire du déploiement (rollback testé) et un de la CI (gate) :
+
+![GitHub Actions](docs/captures/github-actions.png)
+
+**Docker Hub** : `basutsu/imu-api:latest` en `linux/amd64` et `linux/arm64` :
+
+![Docker Hub](docs/captures/docker-hub.png)
+
+**Grafana** : les 4 couches de monitoring, avec du trafic simulé :
+
+![Dashboard Grafana](docs/captures/grafana.png)
 
 | Résultat | Valeur |
 |---|---|
