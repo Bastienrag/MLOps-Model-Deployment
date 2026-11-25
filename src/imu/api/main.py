@@ -4,7 +4,8 @@
     MODEL_URI=models:/imu-classifier@staging uv run uvicorn imu.api.main:app    # autre alias
     MODEL_URI=models uv run uvicorn imu.api.main:app                            # dossier de fichiers
 
-Routes : POST /v1/predict, GET /health. Documentation : /docs (Swagger). Web app de test : /app/.
+Routes : POST /v1/predict, POST /v1/feedback, GET /health, GET /metrics. Documentation : /docs (Swagger).
+Web app de test : /app/.
 Le modèle est chargé une fois au démarrage : depuis le registry MLflow, par nom et alias (`models:/...`),
 ou depuis un dossier de fichiers (cnn.pt + meta.json), ce que fait l'image Docker, qui n'a pas MLflow.
 """
@@ -12,6 +13,7 @@ ou depuis un dossier de fichiers (cnn.pt + meta.json), ce que fait l'image Docke
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,10 +21,12 @@ from pathlib import Path
 import numpy as np
 import torch
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from imu.api.schemas import Health, Prediction, Ride
+from imu.api import monitoring
+from imu.api.schemas import Feedback, Health, Prediction, Ride
 from imu.config import MODEL_NAME, tracking_uri
 from imu.inference import aggregate, preprocess
 from imu.model import IMUNet
@@ -105,6 +109,7 @@ async def lifespan(app: FastAPI):
     /health et /v1/predict répondent alors 503."""
     try:
         state["loaded"] = load_model(MODEL_URI)
+        monitoring.MODEL_INFO.labels(state["loaded"].version).set(1)
         log.info("modèle %s chargé (version %s)", MODEL_URI, state["loaded"].version)
     except Exception as exc:
         state["loaded"] = None
@@ -135,6 +140,23 @@ async def model_version_header(request: Request, call_next):
     loaded = state["loaded"]
     response.headers["X-Model-Version"] = loaded.version if loaded else "none"
     return response
+
+
+@app.middleware("http")
+async def record_metrics(request: Request, call_next):
+    """Requêtes et latence par route. Le label est le modèle de route (`/v1/predict`), jamais l'URL reçue :
+    un client ne peut pas créer de séries à volonté en inventant des chemins."""
+    start = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        route = getattr(request.scope.get("route"), "path", None) or "inconnue"
+        if route != "/metrics":
+            monitoring.REQUESTS.labels(request.method, route, str(status)).inc()
+            monitoring.LATENCY.labels(route).observe(time.perf_counter() - start)
 
 
 def model_or_503():
@@ -174,10 +196,12 @@ v1 = APIRouter(prefix="/v1", tags=["Prédiction"])
 )
 def predict(ride: Ride) -> Prediction:
     m = model_or_503()
-    windows = preprocess(ride.to_array(), m.mean, m.std, m.window, m.stride)
+    start = time.perf_counter()
+    values = ride.to_array()
+    windows = preprocess(values, m.mean, m.std, m.window, m.stride)
     probs = aggregate(np.asarray(m.model.predict(windows)))
     best = int(probs.argmax())
-    return Prediction(
+    prediction = Prediction(
         ride_id=ride.ride_id,
         predicted_class=m.classes[best],
         probability=float(probs[best]),
@@ -186,8 +210,53 @@ def predict(ride: Ride) -> Prediction:
         model_version=m.version,
     )
 
+    features = monitoring.input_features(values)
+    monitoring.observe_input(features)
+    monitoring.PREDICTIONS.labels(prediction.predicted_class).inc()
+    monitoring.CONFIDENCE.observe(prediction.probability)
+    monitoring.events.write(
+        "prediction",
+        ride_hash=monitoring.hash_id(ride.ride_id),
+        model_version=m.version,
+        features=features,
+        n_windows=prediction.n_windows,
+        predicted_class=prediction.predicted_class,
+        confidence=prediction.probability,
+        probabilities=prediction.probabilities,
+        latency_ms=round((time.perf_counter() - start) * 1000, 2),
+    )
+    return prediction
+
+
+@v1.post(
+    "/feedback",
+    status_code=202,
+    summary="Enregistre la vraie catégorie d'un trajet déjà classé",
+    responses={422: {"description": "Classe inconnue"}},
+)
+def feedback(item: Feedback) -> dict:
+    """La vérité terrain arrive après la prédiction : on la croise avec la classe qui avait été prédite
+    (la requête la rappelle, l'API ne garde aucun état), pour suivre la qualité réelle du modèle."""
+    correct = item.predicted_class == item.true_class
+    monitoring.FEEDBACK.labels(item.predicted_class, item.true_class).inc()
+    if correct:
+        monitoring.FEEDBACK_CORRECT.labels(item.true_class).inc()
+    monitoring.events.write(
+        "feedback",
+        ride_hash=monitoring.hash_id(item.ride_id),
+        predicted_class=item.predicted_class,
+        true_class=item.true_class,
+        correct=correct,
+    )
+    return {"correct": correct}
+
 
 app.include_router(v1)
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Web app de test : page statique servie par l'API elle-même (même origine, pas de CORS à régler).
 WEB_DIR = Path(__file__).parent.parent / "web" / "static"

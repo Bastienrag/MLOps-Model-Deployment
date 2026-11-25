@@ -5,6 +5,7 @@ from typing import Literal, Self
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+CLASSES = Literal["Safe", "Safe overall", "Bad weather", "Tandem", "Reckless"]
 MIN_SAMPLES = 256  # une fenêtre ; en dessous, aucune prédiction possible
 MAX_SAMPLES = 10_000  # les trajets d'entraînement vont jusqu'à 4 767 points
 
@@ -93,3 +94,15 @@ class Health(BaseModel):
     model_loaded: bool
     model_name: str
     model_version: str = Field(description='"none" tant que le modèle n\'est pas chargé')
+
+
+class Feedback(BaseModel):
+    """Vérité terrain d'un trajet déjà prédit, pour mesurer la qualité réelle du modèle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    predicted_class: CLASSES = Field(description="Classe que l'API avait prédite")
+    true_class: CLASSES = Field(description="Vraie catégorie, connue après coup")
+    ride_id: str | None = Field(
+        default=None, min_length=1, max_length=128, description="Identifiant du trajet"
+    )
