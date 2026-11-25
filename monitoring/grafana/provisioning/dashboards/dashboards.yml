@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: imu
+    folder: IMU
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards
